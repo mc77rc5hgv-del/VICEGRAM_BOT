@@ -1,0 +1,76 @@
+{
+  "$comment": "Template for TOR section 4/7.7 craniometric QA report. All 'model_value_mm' fields are null until real, validated geometry exists — do not fill with invented numbers.",
+  "specimen_id": null,
+  "report_date": null,
+  "reference_source": "Гайворонский И.В., Нормальная анатомия человека; краниометрические нормы",
+  "tolerance_percent": 1.0,
+  "measurements": [
+    {
+      "id": "longitudinal_diameter",
+      "name_ru": "Продольный диаметр (glabella–opisthocranion)",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "transverse_diameter",
+      "name_ru": "Поперечный диаметр (eurion–eurion)",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "height_diameter",
+      "name_ru": "Высотный диаметр (basion–bregma)",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "cranial_index",
+      "name_ru": "Черепной указатель (поперечный/продольный × 100)",
+      "reference_range": null,
+      "model_value": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "orbit_width",
+      "name_ru": "Ширина глазницы",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "orbit_height",
+      "name_ru": "Высота глазницы",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "foramen_magnum_length",
+      "name_ru": "Длина большого затылочного отверстия",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    },
+    {
+      "id": "foramen_magnum_width",
+      "name_ru": "Ширина большого затылочного отверстия",
+      "reference_range_mm": null,
+      "model_value_mm": null,
+      "deviation_percent": null,
+      "pass": null
+    }
+  ],
+  "overall_pass": null,
+  "reviewer": null,
+  "reviewer_credentials": null
+}

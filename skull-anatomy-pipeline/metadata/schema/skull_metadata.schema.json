@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vicegram-bot.local/skull-anatomy-pipeline/skull_metadata.schema.json",
+  "title": "Skull Anatomy Metadata",
+  "description": "Metadata card schema per ТЗ раздел 6: ID, TA2 (латынь), русское название, принадлежность, описание, содержимое канала/отверстия, клиническая связь.",
+  "type": "object",
+  "required": ["bones", "structures"],
+  "properties": {
+    "bones": {
+      "type": "array",
+      "description": "Отдельные кости черепа (раздел 3, 23 кости + нижняя челюсть + подъязычная кость).",
+      "items": { "$ref": "#/$defs/bone" }
+    },
+    "structures": {
+      "type": "array",
+      "description": "Анатомические образования на костях: отростки, отверстия, каналы, борозды, полости, швы и т.д.",
+      "items": { "$ref": "#/$defs/structure" }
+    }
+  },
+  "$defs": {
+    "region": {
+      "type": "string",
+      "enum": ["neurocranium", "viscerocranium", "hyoid"]
+    },
+    "side": {
+      "type": ["string", "null"],
+      "enum": ["left", "right", "midline", "paired", null]
+    },
+    "bone": {
+      "type": "object",
+      "required": ["id", "ta2_latin", "name_ru", "region", "side"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Уникальный машиночитаемый ID, snake_case, латинская основа названия кости.",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "ta2_latin": { "type": "string", "description": "Название по Terminologia Anatomica (TA2), латынь." },
+        "name_ru": { "type": "string", "description": "Русское название в стиле Гайворонского." },
+        "region": { "$ref": "#/$defs/region" },
+        "side": { "$ref": "#/$defs/side" },
+        "mesh_ref": {
+          "type": ["string", "null"],
+          "description": "Ссылка на имя отдельного меша/объекта в 3D-файле (заполняется после ретопологии)."
+        },
+        "movable": {
+          "type": "boolean",
+          "default": false,
+          "description": "true для нижней челюсти (подвижное сочленение)."
+        }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "required": ["id", "bone_id", "category", "ta2_latin", "name_ru", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Уникальный машиночитаемый ID вида <bone_id>.<structure>.",
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+        },
+        "bone_id": {
+          "type": "string",
+          "description": "ID кости-владельца из bones[].id."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "process", "foramen", "canal", "fissure", "fossa", "sulcus",
+            "crest", "line", "tubercle", "cavity", "suture", "surface",
+            "margin", "angle", "notch", "protuberance", "plate", "other"
+          ]
+        },
+        "ta2_latin": { "type": "string" },
+        "name_ru": { "type": "string" },
+        "side": { "$ref": "#/$defs/side" },
+        "description": {
+          "type": "string",
+          "description": "Краткое описание и функция."
+        },
+        "contents": {
+          "type": ["string", "null"],
+          "description": "Что проходит через отверстие/канал (нервы, сосуды) — для интеграции с ангиологией и неврологией."
+        },
+        "clinical_note": {
+          "type": ["string", "null"],
+          "description": "Клиническая связь (при наличии)."
+        }
+      }
+    }
+  }
+}
