@@ -12,13 +12,7 @@ from pathlib import Path
 
 import pikepdf
 
-
-class PdfCompressionError(Exception):
-    """Raised when a PDF cannot be processed."""
-
-
-class PdfEncryptedError(PdfCompressionError):
-    """Raised when a PDF is password protected."""
+from bot.services.pdf_errors import PdfCompressionError, PdfEncryptedError
 
 
 @dataclass

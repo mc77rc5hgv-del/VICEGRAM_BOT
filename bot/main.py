@@ -5,7 +5,7 @@ import sys
 from aiogram import Bot, Dispatcher
 
 from bot.config import BOT_TOKEN
-from bot.handlers import pdf_compress, start
+from bot.handlers import pdf_actions, start
 
 
 async def main() -> None:
@@ -24,7 +24,7 @@ async def main() -> None:
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
     dp.include_router(start.router)
-    dp.include_router(pdf_compress.router)
+    dp.include_router(pdf_actions.router)
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
