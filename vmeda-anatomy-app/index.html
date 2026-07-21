@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>ВМедА · Анатомия</title>
+<meta name="description" content="Учебное приложение по нормальной анатомии для подготовки к коллоквиумам и экзаменам (структура по И.В. Гайворонскому)" />
+<meta name="theme-color" content="#0A3D91" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="app-header">
+    <h1>ВМедА · Нормальная анатомия</h1>
+    <div class="subtitle">Подготовка к коллоквиумам и экзаменам</div>
+  </header>
+
+  <main class="app-main">
+
+    <section id="view-theory" class="view active"></section>
+    <section id="view-atlas" class="view"></section>
+    <section id="view-trainer" class="view"></section>
+
+    <p class="footer-note">
+      Теоретический материал изложен по классической схеме И.В. Гайворонского
+      («Нормальная анатомия человека»): определение → классификация → строение →
+      кровоснабжение и иннервация. Номенклатура — по актуальной Terminologia
+      Anatomica. Изображения в разделе «Атлас» заменены плейсхолдерами — вставьте
+      соответствующие иллюстрации из атласа Ф. Неттера или пособий И.В. Гайворонского.
+    </p>
+
+  </main>
+
+  <nav class="tabbar">
+    <div class="tabbar-inner">
+      <button class="tab-btn active" data-tab="theory">
+        <span class="tab-icon">📖</span><span>Теория</span>
+      </button>
+      <button class="tab-btn" data-tab="atlas">
+        <span class="tab-icon">🖼️</span><span>Атлас</span>
+      </button>
+      <button class="tab-btn" data-tab="trainer">
+        <span class="tab-icon">🎴</span><span>Тренажёр</span>
+      </button>
+    </div>
+  </nav>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/flashcards.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
