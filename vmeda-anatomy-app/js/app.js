@@ -7,6 +7,8 @@ const state = {
   tab: 'theory',
   theorySectionId: null,
   theoryTopicId: null,
+  theoryQuery: '',
+  selfCheckMode: false,
   atlasQuery: '',
   trainerCategory: 'all',
   trainerDeck: [],
@@ -20,6 +22,47 @@ function findTopic(topicId) {
 
 function findSection(sectionId) {
   return THEORY_SECTIONS.find(s => s.id === sectionId);
+}
+
+/* ---------- Прогресс изучения (localStorage) ---------- */
+
+const STUDIED_KEY = 'vmeda_studied_topics';
+
+function loadStudied() {
+  try {
+    const raw = localStorage.getItem(STUDIED_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+const studiedTopics = loadStudied();
+
+function saveStudied() {
+  localStorage.setItem(STUDIED_KEY, JSON.stringify([...studiedTopics]));
+}
+
+function isStudied(topicId) {
+  return studiedTopics.has(topicId);
+}
+
+function toggleStudied(topicId) {
+  if (studiedTopics.has(topicId)) studiedTopics.delete(topicId);
+  else studiedTopics.add(topicId);
+  saveStudied();
+}
+
+function stripHtml(html) {
+  return String(html).replace(/<[^>]+>/g, ' ');
+}
+
+function topicMatches(topic, query) {
+  const haystack = [
+    topic.ru, topic.la, stripHtml(topic.definition),
+    stripHtml(topic.classification), stripHtml(topic.structure), stripHtml(topic.vessels)
+  ].join(' ').toLowerCase();
+  return haystack.includes(query);
 }
 
 /* ---------- Навигация по вкладкам ---------- */
@@ -37,6 +80,12 @@ function switchTab(tabId) {
 
 /* ---------- Теория ---------- */
 
+function overallProgress() {
+  const total = ALL_TOPICS.length;
+  const done = ALL_TOPICS.filter(t => isStudied(t.id)).length;
+  return { total, done };
+}
+
 function renderTheory() {
   const root = document.getElementById('view-theory');
 
@@ -50,20 +99,73 @@ function renderTheory() {
     return;
   }
 
+  const { total, done } = overallProgress();
   let html = '<div class="subview-header"><span class="subview-title">Теория</span></div>';
+  html += `
+    <div class="search-bar">
+      <span>🔍</span>
+      <input id="theory-search" type="text" placeholder="Поиск по всей теории…" value="${escapeAttr(state.theoryQuery)}" />
+    </div>`;
+
+  const query = state.theoryQuery.trim().toLowerCase();
+
+  if (query) {
+    const matches = ALL_TOPICS.filter(t => topicMatches(t, query));
+    if (!matches.length) {
+      html += '<div class="empty-state">Ничего не найдено. Попробуйте другой запрос.</div>';
+    } else {
+      html += '<div class="topic-card">';
+      matches.forEach(topic => {
+        html += `
+          <div class="topic-row" data-action="open-topic-direct" data-id="${topic.id}">
+            <div class="dot"></div>
+            <div class="titles">
+              <div class="ru">${topic.ru} ${isStudied(topic.id) ? '<span class=\"studied-badge\">✓</span>' : ''}</div>
+              <div class="la">${topic.la} · <span style="opacity:.7">${topic.sectionIcon} ${topic.sectionTitle}</span></div>
+            </div>
+            <div class="chevron">›</div>
+          </div>`;
+      });
+      html += '</div>';
+    }
+    root.innerHTML = html;
+    wireTheorySearch(root);
+    return;
+  }
+
+  html += `<div class="progress-summary">Изучено ${done} из ${total} тем (${total ? Math.round(done/total*100) : 0}%)
+    <div class="progress-track"><div class="progress-fill" style="width:${total ? done/total*100 : 0}%"></div></div>
+  </div>`;
   html += '<div class="footer-note" style="text-align:left;padding:0 2px 14px;">Разделы курса нормальной анатомии по И.В. Гайворонскому. Выберите раздел, затем тему.</div>';
   THEORY_SECTIONS.forEach(section => {
+    const sectionDone = section.topics.filter(t => isStudied(t.id)).length;
     html += `
       <div class="section-card" data-action="open-section" data-id="${section.id}">
         <div class="icon-badge">${section.icon}</div>
         <div class="meta">
           <div class="title">${section.title}</div>
-          <div class="count">${section.topics.length} ${pluralizeTopics(section.topics.length)}</div>
+          <div class="count">${section.topics.length} ${pluralizeTopics(section.topics.length)}${sectionDone ? ' · изучено ' + sectionDone : ''}</div>
         </div>
         <div class="chevron">›</div>
       </div>`;
   });
   root.innerHTML = html;
+  wireTheorySearch(root);
+}
+
+function wireTheorySearch(root) {
+  const input = root.querySelector('#theory-search');
+  if (!input) return;
+  input.addEventListener('input', e => {
+    state.theoryQuery = e.target.value;
+    const caret = e.target.selectionStart;
+    renderTheory();
+    const newInput = document.getElementById('theory-search');
+    if (newInput) {
+      newInput.focus();
+      newInput.setSelectionRange(caret, caret);
+    }
+  });
 }
 
 function pluralizeTopics(n) {
@@ -86,9 +188,9 @@ function renderTopicList(root, sectionId) {
   section.topics.forEach(topic => {
     html += `
       <div class="topic-row" data-action="open-topic" data-id="${topic.id}">
-        <div class="dot"></div>
+        <div class="dot ${isStudied(topic.id) ? 'studied' : ''}"></div>
         <div class="titles">
-          <div class="ru">${topic.ru}</div>
+          <div class="ru">${topic.ru} ${isStudied(topic.id) ? '<span class="studied-badge">✓</span>' : ''}</div>
           <div class="la">${topic.la}</div>
         </div>
         <div class="chevron">›</div>
@@ -100,6 +202,11 @@ function renderTopicList(root, sectionId) {
 
 function renderTopicDetail(root, topicId) {
   const topic = findTopic(topicId);
+  const studied = isStudied(topic.id);
+  const sc = state.selfCheckMode;
+  const cardClass = sc ? 'info-card self-check' : 'info-card';
+  const revealAttr = sc ? 'data-action="reveal-card"' : '';
+  const revealHint = sc ? '<div class="reveal-hint">Нажмите, чтобы показать</div>' : '';
   const html = `
     <div class="subview-header">
       <button class="back-btn" data-action="back-to-topics" data-id="${topic.sectionId}">‹ ${topic.sectionTitle}</button>
@@ -109,21 +216,34 @@ function renderTopicDetail(root, topicId) {
       <div class="la">${topic.la}</div>
     </div>
 
-    <div class="info-card">
+    <div class="topic-toolbar">
+      <button class="pill-btn ${studied ? 'active' : ''}" data-action="toggle-studied" data-id="${topic.id}">
+        ${studied ? '✓ Изучено' : 'Отметить изученным'}
+      </button>
+      <button class="pill-btn ${sc ? 'active' : ''}" data-action="toggle-self-check">
+        🧠 Самопроверка
+      </button>
+    </div>
+
+    <div class="${cardClass}" ${revealAttr}>
       <div class="info-head"><span class="num">1</span> Определение</div>
       <div class="info-body">${topic.definition}</div>
+      ${revealHint}
     </div>
-    <div class="info-card">
+    <div class="${cardClass}" ${revealAttr}>
       <div class="info-head"><span class="num">2</span> Классификация</div>
       <div class="info-body">${topic.classification}</div>
+      ${revealHint}
     </div>
-    <div class="info-card">
+    <div class="${cardClass}" ${revealAttr}>
       <div class="info-head"><span class="num">3</span> Строение</div>
       <div class="info-body">${topic.structure}</div>
+      ${revealHint}
     </div>
-    <div class="info-card vessels">
+    <div class="${cardClass} vessels" ${revealAttr}>
       <div class="info-head"><span class="num">4</span> Кровоснабжение и иннервация</div>
       <div class="info-body">${topic.vessels}</div>
+      ${revealHint}
     </div>
 
     <button class="topic-atlas-link" data-action="open-atlas-for-topic" data-id="${topic.id}">
@@ -385,10 +505,26 @@ document.addEventListener('click', e => {
       state.theoryTopicId = id;
       renderTheory();
       break;
+    case 'open-topic-direct':
+      state.theoryQuery = '';
+      state.theoryTopicId = id;
+      renderTheory();
+      break;
     case 'back-to-topics':
       state.theoryTopicId = null;
       state.theorySectionId = id;
       renderTheory();
+      break;
+    case 'toggle-studied':
+      toggleStudied(id);
+      renderTheory();
+      break;
+    case 'toggle-self-check':
+      state.selfCheckMode = !state.selfCheckMode;
+      renderTheory();
+      break;
+    case 'reveal-card':
+      target.classList.toggle('revealed');
       break;
     case 'open-atlas-for-topic':
       openAtlasForTopic(id);
