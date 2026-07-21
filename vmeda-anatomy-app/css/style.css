@@ -91,6 +91,31 @@ i { font-style: italic; color: var(--ios-blue); }
   color: var(--ios-text-secondary);
 }
 
+.hero-banner {
+  text-align: center;
+  padding: 10px 20px 16px;
+  color: var(--ios-blue);
+  border-bottom: 1px solid var(--ios-border);
+  background: linear-gradient(180deg, rgba(47,111,224,0.06), transparent);
+}
+
+.academy-svg {
+  width: 190px;
+  max-width: 60%;
+  height: auto;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.hero-banner .hero-caption {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--ios-text-secondary);
+  text-transform: uppercase;
+}
+
 .app-main {
   flex: 1;
   padding: 16px 16px calc(var(--tabbar-height) + var(--safe-bottom) + 24px);
@@ -291,6 +316,29 @@ i { font-style: italic; color: var(--ios-blue); }
 }
 .atlas-section-title:first-child { margin-top: 4px; }
 
+.atlas-plate {
+  position: relative;
+  border-radius: 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.atlas-plate .atlas-img {
+  display: none;
+  width: 100%;
+  height: auto;
+  max-height: 340px;
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.atlas-plate.loaded .atlas-img { display: block; }
+.atlas-plate.loaded .image-placeholder { display: none; }
+
+.atlas-plate.modal-plate { margin-bottom: 0; }
+.atlas-plate.modal-plate .atlas-img { max-height: 60vh; }
+
 .image-placeholder {
   border: 1.5px dashed var(--ios-blue-light);
   border-radius: 16px;
@@ -300,8 +348,6 @@ i { font-style: italic; color: var(--ios-blue); }
     135deg, rgba(47,111,224,0.06), rgba(47,111,224,0.06) 10px,
     rgba(47,111,224,0.02) 10px, rgba(47,111,224,0.02) 20px
   );
-  margin-bottom: 10px;
-  cursor: pointer;
 }
 .image-placeholder .ph-icon { font-size: 26px; margin-bottom: 6px; }
 .image-placeholder .ph-source {

@@ -159,13 +159,7 @@ function renderAtlas() {
     html += `<div class="atlas-section-title">${section.icon} ${section.title}</div>`;
     topics.forEach(topic => {
       topic.atlas.forEach((plate, idx) => {
-        html += `
-          <div class="image-placeholder" data-action="open-plate-modal" data-topic="${topic.id}" data-idx="${idx}">
-            <div class="ph-icon">🖼️</div>
-            <div class="ph-source">${plate.source}</div>
-            <div class="ph-topic">${topic.ru}</div>
-            <div class="ph-desc">Вставьте иллюстрацию: «${plate.ru}»</div>
-          </div>`;
+        html += renderAtlasPlate(topic, plate, idx);
       });
     });
   });
@@ -175,6 +169,7 @@ function renderAtlas() {
   }
 
   root.innerHTML = html;
+  wireAtlasImages(root);
 
   const searchInput = document.getElementById('atlas-search');
   if (searchInput) {
@@ -195,15 +190,64 @@ function escapeAttr(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
+/*
+ * Реальные изображения (сканы атласа Неттера / схемы Гайворонского) кладутся
+ * в img/atlas/ по схеме "<id темы>-<номер иллюстрации>.<jpg|jpeg|png|webp>",
+ * например img/atlas/heart-1.jpg. Полный список ожидаемых имён — в README.
+ * Пока файла нет, вместо него показывается стилизованный плейсхолдер;
+ * как только файл появляется в папке, картинка подставляется автоматически.
+ */
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+
+function atlasImageBase(topicId, idx) {
+  return `img/atlas/${topicId}-${idx + 1}`;
+}
+
+function renderAtlasPlate(topic, plate, idx) {
+  const base = atlasImageBase(topic.id, idx);
+  return `
+    <div class="atlas-plate" data-action="open-plate-modal" data-topic="${topic.id}" data-idx="${idx}">
+      <img class="atlas-img" data-base="${base}" alt="${escapeAttr(plate.ru)}" loading="lazy" />
+      <div class="image-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-source">${plate.source}</div>
+        <div class="ph-topic">${topic.ru}</div>
+        <div class="ph-desc">Вставьте иллюстрацию: «${plate.ru}»</div>
+      </div>
+    </div>`;
+}
+
+function tryNextExtension(img, extIndex) {
+  if (extIndex >= IMAGE_EXTENSIONS.length) return;
+  img.onerror = () => tryNextExtension(img, extIndex + 1);
+  img.onload = () => img.parentElement.classList.add('loaded');
+  img.src = `${img.dataset.base}.${IMAGE_EXTENSIONS[extIndex]}`;
+}
+
+function wireAtlasImages(root) {
+  root.querySelectorAll('.atlas-img:not([data-wired])').forEach(img => {
+    img.setAttribute('data-wired', '1');
+    tryNextExtension(img, 0);
+  });
+}
+
 function openPlateModal(topicId, idx) {
   const topic = findTopic(topicId);
   const plate = topic.atlas[idx];
   const overlay = document.getElementById('modal-overlay');
-  document.getElementById('modal-body').innerHTML = `
-    <div class="ph-source">${plate.source}</div>
-    <div class="ph-topic" style="font-size:17px;margin:8px 0 6px;">${topic.ru} <span style="opacity:.6;font-weight:400;">(<i>${topic.la}</i>)</span></div>
-    <div class="ph-desc">Вставьте сюда иллюстрацию из ${plate.source === 'Неттер' ? 'атласа Ф. Неттера' : 'пособий И.В. Гайворонского'}:<br><b>«${plate.ru}»</b></div>
+  const modalBody = document.getElementById('modal-body');
+  modalBody.innerHTML = `
+    <div class="atlas-plate modal-plate">
+      <img class="atlas-img" data-base="${atlasImageBase(topic.id, idx)}" alt="${escapeAttr(plate.ru)}" />
+      <div class="image-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-source">${plate.source}</div>
+        <div class="ph-desc">Вставьте сюда иллюстрацию из ${plate.source === 'Неттер' ? 'атласа Ф. Неттера' : 'пособий И.В. Гайворонского'}:<br><b>«${plate.ru}»</b></div>
+      </div>
+    </div>
+    <div class="ph-topic" style="font-size:17px;margin:10px 0 0;">${topic.ru} <span style="opacity:.6;font-weight:400;">(<i>${topic.la}</i>)</span></div>
   `;
+  wireAtlasImages(modalBody);
   overlay.classList.remove('hidden');
 }
 
