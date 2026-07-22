@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>ВМедА · Анатомия</title>
+<meta name="description" content="Учебное приложение по нормальной анатомии для подготовки к коллоквиумам и экзаменам (структура по И.В. Гайворонскому)" />
+<meta name="theme-color" content="#0A3D91" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="app-header">
+    <h1>ВМедА · Нормальная анатомия</h1>
+    <div class="subtitle">Подготовка к коллоквиумам и экзаменам</div>
+  </header>
+
+  <div class="hero-banner" aria-hidden="true">
+    <svg class="academy-svg" viewBox="0 0 400 140" role="img" aria-label="Силуэт здания академии">
+      <rect x="26" y="74" width="58" height="6" />
+      <rect x="30" y="80" width="50" height="30" />
+      <rect x="316" y="74" width="58" height="6" />
+      <rect x="320" y="80" width="50" height="30" />
+      <rect x="90" y="70" width="220" height="40" />
+      <polygon points="130,40 200,12 270,40" />
+      <rect x="146" y="40" width="6" height="30" />
+      <rect x="165" y="40" width="6" height="30" />
+      <rect x="184" y="40" width="6" height="30" />
+      <rect x="203" y="40" width="6" height="30" />
+      <rect x="222" y="40" width="6" height="30" />
+      <rect x="241" y="40" width="6" height="30" />
+      <rect x="140" y="70" width="113" height="4" />
+      <line x1="200" y1="12" x2="200" y2="2" stroke="currentColor" stroke-width="2" />
+      <rect x="197" y="0" width="10" height="5" />
+      <rect x="96" y="110" width="208" height="5" />
+      <rect x="104" y="115" width="192" height="5" />
+      <rect x="20" y="123" width="360" height="3" opacity="0.45" />
+    </svg>
+    <div class="hero-caption">Военно-медицинская академия имени С.М. Кирова</div>
+  </div>
+
+  <main class="app-main">
+
+    <section id="view-theory" class="view active"></section>
+    <section id="view-atlas" class="view"></section>
+    <section id="view-trainer" class="view"></section>
+
+    <p class="footer-note">
+      Теоретический материал изложен по классической схеме И.В. Гайворонского
+      («Нормальная анатомия человека»): определение → классификация → строение →
+      кровоснабжение и иннервация. Номенклатура — по актуальной Terminologia
+      Anatomica. Изображения в разделе «Атлас» заменены плейсхолдерами — вставьте
+      соответствующие иллюстрации из атласа Ф. Неттера или пособий И.В. Гайворонского.
+    </p>
+
+  </main>
+
+  <nav class="tabbar">
+    <div class="tabbar-inner">
+      <button class="tab-btn active" data-tab="theory">
+        <span class="tab-icon">📖</span><span>Теория</span>
+      </button>
+      <button class="tab-btn" data-tab="atlas">
+        <span class="tab-icon">🖼️</span><span>Атлас</span>
+      </button>
+      <button class="tab-btn" data-tab="trainer">
+        <span class="tab-icon">🎴</span><span>Тренажёр</span>
+      </button>
+    </div>
+  </nav>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/flashcards.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
