@@ -327,7 +327,7 @@ function renderAtlasPlate(topic, plate, idx) {
   const base = atlasImageBase(topic.id, idx);
   return `
     <div class="atlas-plate" data-action="open-plate-modal" data-topic="${topic.id}" data-idx="${idx}">
-      <img class="atlas-img" data-base="${base}" alt="${escapeAttr(plate.ru)}" loading="lazy" />
+      <img class="atlas-img" data-base="${base}" alt="${escapeAttr(plate.ru)}" />
       <div class="image-placeholder">
         <div class="ph-icon">🖼️</div>
         <div class="ph-source">${plate.source}</div>
