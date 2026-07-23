@@ -21,8 +21,8 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 
 echo "==> Generating Reality keypair"
 KEY_OUTPUT=$(/usr/local/bin/xray x25519)
-PRIVATE_KEY=$(echo "$KEY_OUTPUT" | awk -F': ' '/Private key/ {print $2}')
-PUBLIC_KEY=$(echo "$KEY_OUTPUT" | awk -F': ' '/Public key/ {print $2}')
+PRIVATE_KEY=$(echo "$KEY_OUTPUT" | grep -i '^PrivateKey' | awk '{print $NF}')
+PUBLIC_KEY=$(echo "$KEY_OUTPUT" | grep -i 'PublicKey' | awk '{print $NF}')
 SHORT_ID=$(openssl rand -hex 8)
 
 if [[ -z "$PRIVATE_KEY" || -z "$PUBLIC_KEY" ]]; then
