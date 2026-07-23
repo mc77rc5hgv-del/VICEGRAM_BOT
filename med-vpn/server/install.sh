@@ -30,6 +30,9 @@ openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
 chown hysteria:hysteria /etc/hysteria/key.pem /etc/hysteria/cert.pem 2>/dev/null || true
 
 echo "==> Writing $HYSTERIA_CONFIG"
+# Hysteria2 refuses to start with an empty userpass map, so seed one placeholder
+# credential that the bot never touches (it only manages its own tgNNN users).
+PLACEHOLDER_PASS=$(openssl rand -hex 16)
 cat > "$HYSTERIA_CONFIG" <<EOF
 listen: :$HYSTERIA_PORT
 
@@ -39,7 +42,8 @@ tls:
 
 auth:
   type: userpass
-  userpass: {}
+  userpass:
+    _placeholder: $PLACEHOLDER_PASS
 
 masquerade:
   type: proxy
