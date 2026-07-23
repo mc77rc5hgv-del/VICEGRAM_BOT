@@ -1,5 +1,4 @@
 import asyncio
-import io
 import logging
 
 from aiogram import Bot, Dispatcher, Router
@@ -7,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 
 import db
-import wireguard
+import xray_backend as xray
 from config import settings
 from qr import config_to_qr_png
 
@@ -21,18 +20,17 @@ def _is_admin(telegram_id: int) -> bool:
     return telegram_id in settings.admin_ids
 
 
-async def _send_config(message: Message, peer: db.Peer) -> None:
-    config_text = wireguard.build_client_config(peer.private_key, peer.ip_address)
-    config_file = BufferedInputFile(config_text.encode(), filename="med-vpn.conf")
-    await message.answer_document(
-        config_file,
-        caption=(
-            f"Ваш конфиг {settings.service_name} готов.\n"
-            f"IP: {peer.ip_address}\n\n"
-            "Импортируйте файл в приложение WireGuard или отсканируйте QR-код ниже."
-        ),
+async def _send_config(message: Message, client: db.Client) -> None:
+    label = f"tg{client.telegram_id}"
+    vless_uri = xray.build_vless_uri(client.uuid, label)
+    await message.answer(
+        f"Ваша ссылка {settings.service_name} готова.\n\n"
+        f"`{vless_uri}`\n\n"
+        "Откройте приложение Happ, вставьте ссылку (Добавить сервер → Из буфера обмена) "
+        "или отсканируйте QR-код ниже.",
+        parse_mode="Markdown",
     )
-    qr_png = config_to_qr_png(config_text)
+    qr_png = config_to_qr_png(vless_uri)
     await message.answer_photo(BufferedInputFile(qr_png.read(), filename="med-vpn-qr.png"))
 
 
@@ -40,8 +38,8 @@ async def _send_config(message: Message, peer: db.Peer) -> None:
 async def cmd_start(message: Message) -> None:
     await message.answer(
         f"Добро пожаловать в {settings.service_name}!\n\n"
-        "/getconfig — получить конфиг для подключения\n"
-        "/myconfig — прислать конфиг повторно\n"
+        "/getconfig — получить ссылку для подключения (Happ)\n"
+        "/myconfig — прислать ссылку повторно\n"
         "/status — проверить статус подключения\n"
         "/revoke — отключить свой доступ"
     )
@@ -50,58 +48,56 @@ async def cmd_start(message: Message) -> None:
 @router.message(Command("getconfig"))
 async def cmd_getconfig(message: Message) -> None:
     telegram_id = message.from_user.id
-    existing = db.get_active_peer(telegram_id)
+    existing = db.get_active_client(telegram_id)
     if existing:
-        await message.answer("У вас уже есть активный конфиг. Используйте /myconfig, чтобы получить его снова.")
+        await message.answer("У вас уже есть активная ссылка. Используйте /myconfig, чтобы получить её снова.")
         return
 
+    client_uuid = xray.generate_uuid()
+    label = f"tg{telegram_id}"
     try:
-        ip_address = wireguard.allocate_ip()
-        private_key, public_key = wireguard.generate_keypair()
-        wireguard.add_peer(public_key, ip_address)
-    except wireguard.WireGuardError as exc:
-        log.exception("Failed to provision peer for %s", telegram_id)
-        await message.answer(f"Не удалось создать конфиг: {exc}")
+        xray.add_client(client_uuid, label)
+    except xray.XrayError as exc:
+        log.exception("Failed to provision client for %s", telegram_id)
+        await message.answer(f"Не удалось создать ссылку: {exc}")
         return
 
-    peer = db.create_peer(
+    client = db.create_client(
         telegram_id=telegram_id,
         telegram_name=message.from_user.username,
-        ip_address=ip_address,
-        public_key=public_key,
-        private_key=private_key,
+        client_uuid=client_uuid,
     )
-    await _send_config(message, peer)
+    await _send_config(message, client)
 
 
 @router.message(Command("myconfig"))
 async def cmd_myconfig(message: Message) -> None:
-    peer = db.get_active_peer(message.from_user.id)
-    if not peer:
-        await message.answer("У вас пока нет конфига. Отправьте /getconfig, чтобы получить его.")
+    client = db.get_active_client(message.from_user.id)
+    if not client:
+        await message.answer("У вас пока нет ссылки. Отправьте /getconfig, чтобы получить её.")
         return
-    await _send_config(message, peer)
+    await _send_config(message, client)
 
 
 @router.message(Command("status"))
 async def cmd_status(message: Message) -> None:
-    peer = db.get_active_peer(message.from_user.id)
-    if not peer:
+    client = db.get_active_client(message.from_user.id)
+    if not client:
         await message.answer("Доступ не активирован. Отправьте /getconfig.")
         return
-    await message.answer(f"Доступ активен.\nIP: {peer.ip_address}\nВыдан: {peer.created_at}")
+    await message.answer(f"Доступ активен.\nВыдан: {client.created_at}")
 
 
 @router.message(Command("revoke"))
 async def cmd_revoke(message: Message) -> None:
-    peer = db.revoke_peer(message.from_user.id)
-    if not peer:
-        await message.answer("У вас нет активного конфига.")
+    client = db.revoke_client(message.from_user.id)
+    if not client:
+        await message.answer("У вас нет активной ссылки.")
         return
     try:
-        wireguard.remove_peer(peer.public_key)
-    except wireguard.WireGuardError:
-        log.exception("Failed to remove peer %s from WireGuard", peer.public_key)
+        xray.remove_client(client.uuid)
+    except xray.XrayError:
+        log.exception("Failed to remove client %s from Xray", client.uuid)
     await message.answer("Доступ отключён. Чтобы подключиться снова, отправьте /getconfig.")
 
 
@@ -117,11 +113,11 @@ async def cmd_admin_stats(message: Message) -> None:
 async def cmd_admin_list(message: Message) -> None:
     if not _is_admin(message.from_user.id):
         return
-    peers = db.list_active_peers(limit=50)
-    if not peers:
+    clients = db.list_active_clients(limit=50)
+    if not clients:
         await message.answer("Активных пользователей нет.")
         return
-    lines = [f"{p.telegram_id} @{p.telegram_name or '-'} — {p.ip_address} ({p.created_at})" for p in peers]
+    lines = [f"{c.telegram_id} @{c.telegram_name or '-'} — {c.created_at}" for c in clients]
     await message.answer("\n".join(lines))
 
 
@@ -134,14 +130,14 @@ async def cmd_admin_revoke(message: Message) -> None:
         await message.answer("Использование: /admin_revoke <telegram_id>")
         return
     target_id = int(parts[1])
-    peer = db.revoke_peer(target_id)
-    if not peer:
-        await message.answer("У этого пользователя нет активного конфига.")
+    client = db.revoke_client(target_id)
+    if not client:
+        await message.answer("У этого пользователя нет активной ссылки.")
         return
     try:
-        wireguard.remove_peer(peer.public_key)
-    except wireguard.WireGuardError:
-        log.exception("Failed to remove peer %s from WireGuard", peer.public_key)
+        xray.remove_client(client.uuid)
+    except xray.XrayError:
+        log.exception("Failed to remove client %s from Xray", client.uuid)
     await message.answer(f"Доступ пользователя {target_id} отозван.")
 
 

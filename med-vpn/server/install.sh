@@ -1,84 +1,97 @@
 #!/usr/bin/env bash
-# MED VPN — WireGuard server bootstrap for a fresh Ubuntu 22.04/24.04 VPS.
+# MED VPN — Xray-core (VLESS + Reality) server bootstrap for a fresh Ubuntu 22.04/24.04 VPS.
 # Run as root: sudo bash install.sh
 set -euo pipefail
 
-WG_IFACE="wg0"
-WG_PORT="51820"
-WG_SUBNET="10.66.0.0/22"      # ~1000 usable client addresses
-WG_SERVER_IP="10.66.0.1/22"
-WG_DIR="/etc/wireguard"
+XRAY_PORT="443"
+XRAY_SERVER_NAME="www.microsoft.com"   # real TLS site Reality disguises the server as
+XRAY_CONFIG="/usr/local/etc/xray/config.json"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root (sudo bash install.sh)" >&2
   exit 1
 fi
 
-echo "==> Installing packages"
+echo "==> Installing prerequisites"
 apt-get update -y
-apt-get install -y wireguard wireguard-tools qrencode iptables-persistent
+apt-get install -y curl openssl
 
-echo "==> Generating server keys"
-umask 077
-mkdir -p "$WG_DIR"
-if [[ ! -f "$WG_DIR/server_private.key" ]]; then
-  wg genkey | tee "$WG_DIR/server_private.key" | wg pubkey > "$WG_DIR/server_public.key"
+echo "==> Installing Xray-core"
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+
+echo "==> Generating Reality keypair"
+KEY_OUTPUT=$(/usr/local/bin/xray x25519)
+PRIVATE_KEY=$(echo "$KEY_OUTPUT" | awk -F': ' '/Private key/ {print $2}')
+PUBLIC_KEY=$(echo "$KEY_OUTPUT" | awk -F': ' '/Public key/ {print $2}')
+SHORT_ID=$(openssl rand -hex 8)
+
+if [[ -z "$PRIVATE_KEY" || -z "$PUBLIC_KEY" ]]; then
+  echo "Could not parse 'xray x25519' output, run it manually and fill .env by hand:" >&2
+  echo "$KEY_OUTPUT" >&2
 fi
-SERVER_PRIV=$(cat "$WG_DIR/server_private.key")
 
-PUB_IF=$(ip route show default | awk '/default/ {print $5; exit}')
-if [[ -z "$PUB_IF" ]]; then
-  echo "Could not detect the public network interface, edit $WG_DIR/$WG_IFACE.conf manually." >&2
-  PUB_IF="eth0"
-fi
-
-echo "==> Writing $WG_DIR/$WG_IFACE.conf"
-cat > "$WG_DIR/$WG_IFACE.conf" <<EOF
-[Interface]
-Address = $WG_SERVER_IP
-ListenPort = $WG_PORT
-PrivateKey = $SERVER_PRIV
-PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $PUB_IF -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $PUB_IF -j MASQUERADE
-SaveConfig = true
-
-# Peers are appended below by the MED VPN bot (wg-quick save $WG_IFACE)
+echo "==> Writing $XRAY_CONFIG"
+mkdir -p "$(dirname "$XRAY_CONFIG")"
+cat > "$XRAY_CONFIG" <<EOF
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": $XRAY_PORT,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$XRAY_SERVER_NAME:443",
+          "xver": 0,
+          "serverNames": ["$XRAY_SERVER_NAME"],
+          "privateKey": "$PRIVATE_KEY",
+          "shortIds": ["$SHORT_ID"]
+        }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    }
+  ],
+  "outbounds": [
+    { "protocol": "freedom" }
+  ]
+}
 EOF
-chmod 600 "$WG_DIR/$WG_IFACE.conf"
 
-echo "==> Enabling IP forwarding"
-cat > /etc/sysctl.d/99-med-vpn.conf <<EOF
-net.ipv4.ip_forward = 1
-EOF
-sysctl --system > /dev/null
+echo "==> Starting Xray"
+systemctl enable xray
+systemctl restart xray
 
-echo "==> Starting WireGuard"
-systemctl enable --now "wg-quick@${WG_IFACE}"
-
-echo "==> Allow the WireGuard port through UFW (if present)"
+echo "==> Allow the Xray port through UFW (if present)"
 if command -v ufw >/dev/null 2>&1; then
-  ufw allow "${WG_PORT}/udp" || true
+  ufw allow "${XRAY_PORT}/tcp" || true
 fi
 
-SERVER_PUB=$(cat "$WG_DIR/server_public.key")
 PUB_IP=$(curl -s -4 https://ifconfig.me || echo "<YOUR_SERVER_IP>")
 
 cat <<EOF
 
-==================== MED VPN server is up ====================
-Interface:        $WG_IFACE
-Listen port:      $WG_PORT/udp
-Client subnet:    $WG_SUBNET
-Server public IP: $PUB_IP
-Server pubkey:    $SERVER_PUB
+============== MED VPN server is up (Xray / VLESS + Reality) ==============
+Port:              $XRAY_PORT/tcp
+Server name (SNI): $XRAY_SERVER_NAME
+Public key:        $PUBLIC_KEY
+Short ID:          $SHORT_ID
+Server public IP:  $PUB_IP
 
 Put these into med-vpn/bot/.env:
-  WG_INTERFACE=$WG_IFACE
-  WG_CONF_PATH=$WG_DIR/$WG_IFACE.conf
-  WG_SERVER_PUBLIC_KEY=$SERVER_PUB
-  WG_SERVER_ENDPOINT=$PUB_IP:$WG_PORT
-  WG_SUBNET=$WG_SUBNET
+  XRAY_CONFIG_PATH=$XRAY_CONFIG
+  XRAY_PUBLIC_KEY=$PUBLIC_KEY
+  XRAY_SHORT_ID=$SHORT_ID
+  XRAY_SERVER_NAME=$XRAY_SERVER_NAME
+  XRAY_SERVER_ENDPOINT=$PUB_IP:$XRAY_PORT
 
-The bot must run on THIS host as root (or via sudo) so it can call `wg`/`wg-quick`.
-================================================================
+The bot must run on THIS host as root so it can edit $XRAY_CONFIG and restart xray.
+=============================================================================
 EOF

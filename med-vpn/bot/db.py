@@ -7,12 +7,10 @@ from pathlib import Path
 from config import settings
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS peers (
+CREATE TABLE IF NOT EXISTS clients (
     telegram_id   INTEGER PRIMARY KEY,
     telegram_name TEXT,
-    ip_address    TEXT NOT NULL UNIQUE,
-    public_key    TEXT NOT NULL UNIQUE,
-    private_key   TEXT NOT NULL,
+    uuid          TEXT NOT NULL UNIQUE,
     created_at    TEXT NOT NULL,
     revoked_at    TEXT
 );
@@ -37,12 +35,10 @@ def init_db() -> None:
 
 
 @dataclass
-class Peer:
+class Client:
     telegram_id: int
     telegram_name: str | None
-    ip_address: str
-    public_key: str
-    private_key: str
+    uuid: str
     created_at: str
     revoked_at: str | None
 
@@ -51,71 +47,61 @@ class Peer:
         return self.revoked_at is None
 
 
-def _row_to_peer(row: sqlite3.Row) -> Peer:
-    return Peer(**dict(row))
+def _row_to_client(row: sqlite3.Row) -> Client:
+    return Client(**dict(row))
 
 
-def get_active_peer(telegram_id: int) -> Peer | None:
+def get_active_client(telegram_id: int) -> Client | None:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT * FROM peers WHERE telegram_id = ? AND revoked_at IS NULL",
+            "SELECT * FROM clients WHERE telegram_id = ? AND revoked_at IS NULL",
             (telegram_id,),
         ).fetchone()
-        return _row_to_peer(row) if row else None
+        return _row_to_client(row) if row else None
 
 
-def used_ips() -> set[str]:
-    with _connect() as conn:
-        rows = conn.execute("SELECT ip_address FROM peers WHERE revoked_at IS NULL").fetchall()
-        return {r["ip_address"] for r in rows}
-
-
-def create_peer(telegram_id: int, telegram_name: str | None, ip_address: str,
-                 public_key: str, private_key: str) -> Peer:
+def create_client(telegram_id: int, telegram_name: str | None, client_uuid: str) -> Client:
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO peers (telegram_id, telegram_name, ip_address, public_key,
-                                   private_key, created_at, revoked_at)
-               VALUES (?, ?, ?, ?, ?, ?, NULL)
+            """INSERT INTO clients (telegram_id, telegram_name, uuid, created_at, revoked_at)
+               VALUES (?, ?, ?, ?, NULL)
                ON CONFLICT(telegram_id) DO UPDATE SET
                  telegram_name=excluded.telegram_name,
-                 ip_address=excluded.ip_address,
-                 public_key=excluded.public_key,
-                 private_key=excluded.private_key,
+                 uuid=excluded.uuid,
                  created_at=excluded.created_at,
                  revoked_at=NULL""",
-            (telegram_id, telegram_name, ip_address, public_key, private_key, now),
+            (telegram_id, telegram_name, client_uuid, now),
         )
-    peer = get_active_peer(telegram_id)
-    assert peer is not None
-    return peer
+    client = get_active_client(telegram_id)
+    assert client is not None
+    return client
 
 
-def revoke_peer(telegram_id: int) -> Peer | None:
-    peer = get_active_peer(telegram_id)
-    if peer is None:
+def revoke_client(telegram_id: int) -> Client | None:
+    client = get_active_client(telegram_id)
+    if client is None:
         return None
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
         conn.execute(
-            "UPDATE peers SET revoked_at = ? WHERE telegram_id = ?",
+            "UPDATE clients SET revoked_at = ? WHERE telegram_id = ?",
             (now, telegram_id),
         )
-    return peer
+    return client
 
 
 def stats() -> dict:
     with _connect() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM peers WHERE revoked_at IS NULL").fetchone()[0]
-        revoked = conn.execute("SELECT COUNT(*) FROM peers WHERE revoked_at IS NOT NULL").fetchone()[0]
-    return {"active": total, "revoked": revoked}
+        active = conn.execute("SELECT COUNT(*) FROM clients WHERE revoked_at IS NULL").fetchone()[0]
+        revoked = conn.execute("SELECT COUNT(*) FROM clients WHERE revoked_at IS NOT NULL").fetchone()[0]
+    return {"active": active, "revoked": revoked}
 
 
-def list_active_peers(limit: int = 50, offset: int = 0) -> list[Peer]:
+def list_active_clients(limit: int = 50, offset: int = 0) -> list[Client]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM peers WHERE revoked_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM clients WHERE revoked_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
-        return [_row_to_peer(r) for r in rows]
+        return [_row_to_client(r) for r in rows]

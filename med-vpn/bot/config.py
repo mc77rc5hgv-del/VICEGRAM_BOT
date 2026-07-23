@@ -17,13 +17,11 @@ class Settings:
 
     db_path: str = os.environ.get("DB_PATH", "/etc/med-vpn/med-vpn.db")
 
-    wg_interface: str = os.environ.get("WG_INTERFACE", "wg0")
-    wg_conf_path: str = os.environ.get("WG_CONF_PATH", "/etc/wireguard/wg0.conf")
-    wg_subnet: str = os.environ["WG_SUBNET"]              # e.g. 10.66.0.0/22
-    wg_server_public_key: str = os.environ["WG_SERVER_PUBLIC_KEY"]
-    wg_server_endpoint: str = os.environ["WG_SERVER_ENDPOINT"]  # host:port
-    wg_client_dns: str = os.environ.get("WG_CLIENT_DNS", "1.1.1.1")
-    wg_allowed_ips: str = os.environ.get("WG_ALLOWED_IPS", "0.0.0.0/0, ::/0")
+    xray_config_path: str = os.environ.get("XRAY_CONFIG_PATH", "/usr/local/etc/xray/config.json")
+    xray_public_key: str = os.environ["XRAY_PUBLIC_KEY"]
+    xray_short_id: str = os.environ["XRAY_SHORT_ID"]
+    xray_server_name: str = os.environ.get("XRAY_SERVER_NAME", "www.microsoft.com")
+    xray_server_endpoint: str = os.environ["XRAY_SERVER_ENDPOINT"]  # host:port, e.g. 1.2.3.4:443
 
     service_name: str = os.environ.get("SERVICE_NAME", "MED VPN")
 

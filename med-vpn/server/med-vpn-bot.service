@@ -1,6 +1,6 @@
 [Unit]
 Description=MED VPN Telegram bot
-After=network-online.target wg-quick@wg0.service
+After=network-online.target xray.service
 Wants=network-online.target
 
 [Service]
