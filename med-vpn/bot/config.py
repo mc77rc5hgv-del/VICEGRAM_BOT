@@ -17,11 +17,10 @@ class Settings:
 
     db_path: str = os.environ.get("DB_PATH", "/etc/med-vpn/med-vpn.db")
 
-    xray_config_path: str = os.environ.get("XRAY_CONFIG_PATH", "/usr/local/etc/xray/config.json")
-    xray_public_key: str = os.environ["XRAY_PUBLIC_KEY"]
-    xray_short_id: str = os.environ["XRAY_SHORT_ID"]
-    xray_server_name: str = os.environ.get("XRAY_SERVER_NAME", "www.microsoft.com")
-    xray_server_endpoint: str = os.environ["XRAY_SERVER_ENDPOINT"]  # host:port, e.g. 1.2.3.4:443
+    hysteria_config_path: str = os.environ.get("HYSTERIA_CONFIG_PATH", "/etc/hysteria/config.yaml")
+    hysteria_server_endpoint: str = os.environ["HYSTERIA_SERVER_ENDPOINT"]  # host:port, e.g. 1.2.3.4:443
+    hysteria_sni: str = os.environ.get("HYSTERIA_SNI", "med-vpn.internal")
+    hysteria_insecure: bool = os.environ.get("HYSTERIA_INSECURE", "1") == "1"
 
     service_name: str = os.environ.get("SERVICE_NAME", "MED VPN")
 

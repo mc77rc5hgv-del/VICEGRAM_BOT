@@ -1,6 +1,6 @@
 [Unit]
 Description=MED VPN Telegram bot
-After=network-online.target xray.service
+After=network-online.target hysteria-server.service
 Wants=network-online.target
 
 [Service]

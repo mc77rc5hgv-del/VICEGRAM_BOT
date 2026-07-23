@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# MED VPN — Xray-core (VLESS + Reality) server bootstrap for a fresh Ubuntu 22.04/24.04 VPS.
+# MED VPN — Hysteria2 server bootstrap for a fresh Ubuntu 22.04/24.04 VPS.
+# Hysteria2 runs over UDP/QUIC, which currently passes Russian DPI (TSPU)
+# much more reliably than TCP-based VLESS+Reality.
 # Run as root: sudo bash install.sh
 set -euo pipefail
 
-XRAY_PORT="443"
-XRAY_SERVER_NAME="www.microsoft.com"   # real TLS site Reality disguises the server as
-XRAY_CONFIG="/usr/local/etc/xray/config.json"
+HYSTERIA_PORT="443"
+HYSTERIA_CONFIG="/etc/hysteria/config.yaml"
+HYSTERIA_SNI="med-vpn.internal"
+MASQUERADE_URL="https://news.ycombinator.com"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root (sudo bash install.sh)" >&2
@@ -16,82 +19,65 @@ echo "==> Installing prerequisites"
 apt-get update -y
 apt-get install -y curl openssl
 
-echo "==> Installing Xray-core"
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+echo "==> Installing Hysteria2"
+bash <(curl -fsSL https://get.hy2.sh/)
 
-echo "==> Generating Reality keypair"
-KEY_OUTPUT=$(/usr/local/bin/xray x25519)
-PRIVATE_KEY=$(echo "$KEY_OUTPUT" | grep -i '^PrivateKey' | awk '{print $NF}')
-PUBLIC_KEY=$(echo "$KEY_OUTPUT" | grep -i 'PublicKey' | awk '{print $NF}')
-SHORT_ID=$(openssl rand -hex 8)
+echo "==> Generating self-signed TLS certificate"
+mkdir -p /etc/hysteria
+openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+  -keyout /etc/hysteria/key.pem -out /etc/hysteria/cert.pem \
+  -subj "/CN=$HYSTERIA_SNI" -days 3650
+chown hysteria:hysteria /etc/hysteria/key.pem /etc/hysteria/cert.pem 2>/dev/null || true
 
-if [[ -z "$PRIVATE_KEY" || -z "$PUBLIC_KEY" ]]; then
-  echo "Could not parse 'xray x25519' output, run it manually and fill .env by hand:" >&2
-  echo "$KEY_OUTPUT" >&2
-fi
+echo "==> Writing $HYSTERIA_CONFIG"
+cat > "$HYSTERIA_CONFIG" <<EOF
+listen: :$HYSTERIA_PORT
 
-echo "==> Writing $XRAY_CONFIG"
-mkdir -p "$(dirname "$XRAY_CONFIG")"
-cat > "$XRAY_CONFIG" <<EOF
-{
-  "log": { "loglevel": "warning" },
-  "inbounds": [
-    {
-      "listen": "0.0.0.0",
-      "port": $XRAY_PORT,
-      "protocol": "vless",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "$XRAY_SERVER_NAME:443",
-          "xver": 0,
-          "serverNames": ["$XRAY_SERVER_NAME"],
-          "privateKey": "$PRIVATE_KEY",
-          "shortIds": ["$SHORT_ID"]
-        }
-      },
-      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
-    }
-  ],
-  "outbounds": [
-    { "protocol": "freedom" }
-  ]
-}
+tls:
+  cert: /etc/hysteria/cert.pem
+  key: /etc/hysteria/key.pem
+
+auth:
+  type: userpass
+  userpass: {}
+
+masquerade:
+  type: proxy
+  proxy:
+    url: $MASQUERADE_URL
+    rewriteHost: true
 EOF
 
-echo "==> Starting Xray"
-systemctl enable xray
-systemctl restart xray
+echo "==> Stopping any previous Xray setup (MED VPN now uses Hysteria2)"
+systemctl disable --now xray 2>/dev/null || true
 
-echo "==> Allow the Xray port through UFW (if present)"
+echo "==> Starting Hysteria2"
+systemctl enable hysteria-server.service 2>/dev/null || systemctl enable hysteria-server@config.service
+systemctl restart hysteria-server.service 2>/dev/null || systemctl restart hysteria-server@config.service
+sleep 1
+STATUS=$(systemctl is-active hysteria-server.service 2>/dev/null || systemctl is-active hysteria-server@config.service 2>/dev/null || echo "unknown")
+
+echo "==> Allow the Hysteria2 port through UFW (if present)"
 if command -v ufw >/dev/null 2>&1; then
-  ufw allow "${XRAY_PORT}/tcp" || true
+  ufw allow "${HYSTERIA_PORT}/udp" || true
 fi
 
 PUB_IP=$(curl -s -4 https://ifconfig.me || echo "<YOUR_SERVER_IP>")
 
 cat <<EOF
 
-============== MED VPN server is up (Xray / VLESS + Reality) ==============
-Port:              $XRAY_PORT/tcp
-Server name (SNI): $XRAY_SERVER_NAME
-Public key:        $PUBLIC_KEY
-Short ID:          $SHORT_ID
+============== MED VPN server is up (Hysteria2) ==============
+Service status:    $STATUS
+Port:              $HYSTERIA_PORT/udp
+SNI:               $HYSTERIA_SNI
 Server public IP:  $PUB_IP
 
 Put these into med-vpn/bot/.env:
-  XRAY_CONFIG_PATH=$XRAY_CONFIG
-  XRAY_PUBLIC_KEY=$PUBLIC_KEY
-  XRAY_SHORT_ID=$SHORT_ID
-  XRAY_SERVER_NAME=$XRAY_SERVER_NAME
-  XRAY_SERVER_ENDPOINT=$PUB_IP:$XRAY_PORT
+  HYSTERIA_CONFIG_PATH=$HYSTERIA_CONFIG
+  HYSTERIA_SERVER_ENDPOINT=$PUB_IP:$HYSTERIA_PORT
+  HYSTERIA_SNI=$HYSTERIA_SNI
+  HYSTERIA_INSECURE=1
 
-The bot must run on THIS host as root so it can edit $XRAY_CONFIG and restart xray.
-=============================================================================
+The bot must run on THIS host as root so it can edit $HYSTERIA_CONFIG and restart hysteria-server.
+=================================================================
 EOF

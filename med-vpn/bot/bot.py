@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 
 import db
-import xray_backend as xray
+import hysteria_backend as hysteria
 from config import settings
 from qr import config_to_qr_png
 
@@ -22,15 +22,15 @@ def _is_admin(telegram_id: int) -> bool:
 
 async def _send_config(message: Message, client: db.Client) -> None:
     label = f"tg{client.telegram_id}"
-    vless_uri = xray.build_vless_uri(client.uuid, label)
+    uri = hysteria.build_hysteria_uri(client.username, client.password, label)
     await message.answer(
         f"Ваша ссылка {settings.service_name} готова.\n\n"
-        f"`{vless_uri}`\n\n"
+        f"`{uri}`\n\n"
         "Откройте приложение Happ, вставьте ссылку (Добавить сервер → Из буфера обмена) "
         "или отсканируйте QR-код ниже.",
         parse_mode="Markdown",
     )
-    qr_png = config_to_qr_png(vless_uri)
+    qr_png = config_to_qr_png(uri)
     await message.answer_photo(BufferedInputFile(qr_png.read(), filename="med-vpn-qr.png"))
 
 
@@ -53,11 +53,10 @@ async def cmd_getconfig(message: Message) -> None:
         await message.answer("У вас уже есть активная ссылка. Используйте /myconfig, чтобы получить её снова.")
         return
 
-    client_uuid = xray.generate_uuid()
-    label = f"tg{telegram_id}"
+    username, password = hysteria.generate_credentials(telegram_id)
     try:
-        xray.add_client(client_uuid, label)
-    except xray.XrayError as exc:
+        hysteria.add_user(username, password)
+    except hysteria.HysteriaError as exc:
         log.exception("Failed to provision client for %s", telegram_id)
         await message.answer(f"Не удалось создать ссылку: {exc}")
         return
@@ -65,7 +64,8 @@ async def cmd_getconfig(message: Message) -> None:
     client = db.create_client(
         telegram_id=telegram_id,
         telegram_name=message.from_user.username,
-        client_uuid=client_uuid,
+        username=username,
+        password=password,
     )
     await _send_config(message, client)
 
@@ -95,9 +95,9 @@ async def cmd_revoke(message: Message) -> None:
         await message.answer("У вас нет активной ссылки.")
         return
     try:
-        xray.remove_client(client.uuid)
-    except xray.XrayError:
-        log.exception("Failed to remove client %s from Xray", client.uuid)
+        hysteria.remove_user(client.username)
+    except hysteria.HysteriaError:
+        log.exception("Failed to remove client %s from Hysteria", client.username)
     await message.answer("Доступ отключён. Чтобы подключиться снова, отправьте /getconfig.")
 
 
@@ -135,9 +135,9 @@ async def cmd_admin_revoke(message: Message) -> None:
         await message.answer("У этого пользователя нет активной ссылки.")
         return
     try:
-        xray.remove_client(client.uuid)
-    except xray.XrayError:
-        log.exception("Failed to remove client %s from Xray", client.uuid)
+        hysteria.remove_user(client.username)
+    except hysteria.HysteriaError:
+        log.exception("Failed to remove client %s from Hysteria", client.username)
     await message.answer(f"Доступ пользователя {target_id} отозван.")
 
 

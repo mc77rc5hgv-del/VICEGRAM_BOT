@@ -10,7 +10,8 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
     telegram_id   INTEGER PRIMARY KEY,
     telegram_name TEXT,
-    uuid          TEXT NOT NULL UNIQUE,
+    username      TEXT NOT NULL UNIQUE,
+    password      TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     revoked_at    TEXT
 );
@@ -38,7 +39,8 @@ def init_db() -> None:
 class Client:
     telegram_id: int
     telegram_name: str | None
-    uuid: str
+    username: str
+    password: str
     created_at: str
     revoked_at: str | None
 
@@ -60,18 +62,19 @@ def get_active_client(telegram_id: int) -> Client | None:
         return _row_to_client(row) if row else None
 
 
-def create_client(telegram_id: int, telegram_name: str | None, client_uuid: str) -> Client:
+def create_client(telegram_id: int, telegram_name: str | None, username: str, password: str) -> Client:
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO clients (telegram_id, telegram_name, uuid, created_at, revoked_at)
-               VALUES (?, ?, ?, ?, NULL)
+            """INSERT INTO clients (telegram_id, telegram_name, username, password, created_at, revoked_at)
+               VALUES (?, ?, ?, ?, ?, NULL)
                ON CONFLICT(telegram_id) DO UPDATE SET
                  telegram_name=excluded.telegram_name,
-                 uuid=excluded.uuid,
+                 username=excluded.username,
+                 password=excluded.password,
                  created_at=excluded.created_at,
                  revoked_at=NULL""",
-            (telegram_id, telegram_name, client_uuid, now),
+            (telegram_id, telegram_name, username, password, now),
         )
     client = get_active_client(telegram_id)
     assert client is not None

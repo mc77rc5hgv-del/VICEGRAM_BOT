@@ -1,39 +1,45 @@
 # MED VPN
 
-Self-hosted VLESS + Reality (Xray-core) VPN service with self-service access via a
-Telegram bot. Clients connect using the **Happ** app. Sized for ~200 users.
+Self-hosted Hysteria2 VPN service with self-service access via a Telegram bot. Clients
+connect using the **Happ** app. Sized for ~200 users.
+
+## Why Hysteria2
+
+The project started on WireGuard, moved to VLESS+Reality (for Happ compatibility), and as
+of mid-2026 moved again to **Hysteria2** after Russian DPI (RKN's ТСПУ) started actively
+cutting the TCP handshake of plain VLESS+TCP+Reality connections. Hysteria2 runs over
+UDP/QUIC, which the current generation of DPI equipment handles far less aggressively than
+TCP — this is also what most commercial VPN apps (Happ's own bundled options, other
+providers) have converged on for Russian users.
 
 ## Architecture
 
 ```
-Telegram user  <--->  MED VPN bot (aiogram)  <--->  Xray-core (VLESS+Reality) on the same VPS
+Telegram user  <--->  MED VPN bot (aiogram)  <--->  Hysteria2 (UDP/443) on the same VPS
                               |
                          SQLite (clients.db)
 ```
 
-- **Xray-core** runs a VLESS inbound with **Reality**, which disguises the VPN handshake as
-  normal HTTPS traffic to a real website (`XRAY_SERVER_NAME`) — this is what makes it far
-  harder for DPI-based blocking to detect and block than WireGuard/OpenVPN.
-- **The Telegram bot** runs on the same host (it edits `/usr/local/etc/xray/config.json` and
-  restarts the `xray` service, so it needs root) and does everything a human admin would
-  otherwise do by hand:
-  - `/getconfig` — generates a UUID, adds it as a client in the Xray config, and sends the
-    user a `vless://...` link + QR code to import into **Happ**.
+- **Hysteria2** runs a UDP listener with a self-signed TLS certificate and per-user
+  `userpass` authentication (username/password pairs in `/etc/hysteria/config.yaml`).
+- **The Telegram bot** runs on the same host (it edits `config.yaml` and restarts the
+  `hysteria-server` service, so it needs root):
+  - `/getconfig` — generates a username/password, adds it to the Hysteria2 config, and
+    sends the user a `hysteria2://...` link + QR code to import into **Happ**.
   - `/myconfig` — resends the same link.
   - `/status` — shows when access was issued.
   - `/revoke` — lets a user disable their own access.
   - `/admin_stats`, `/admin_list`, `/admin_revoke <telegram_id>` — restricted to the IDs
     listed in `ADMIN_IDS`.
-- **SQLite** stores one row per Telegram user: UUID + timestamps, so `/myconfig` can resend
-  the same link without regenerating it.
+- **SQLite** stores one row per Telegram user: username + password + timestamps, so
+  `/myconfig` can resend the same link without regenerating it.
 
 ## 1. Get a VPS
 
-Any VPS outside Russia works (Netherlands, Germany, etc. — see the hosting notes from
-earlier in this project). Minimum spec: 1 vCPU / 1-2 GB RAM / Ubuntu 22.04 or 24.04 —
-comfortably handles ~200 users.
+Any VPS outside Russia works (Netherlands, Germany, etc). Minimum spec: 1 vCPU / 1-2 GB
+RAM / Ubuntu 22.04 or 24.04 — comfortably handles ~200 users.
 
-## 2. Provision Xray (VLESS + Reality)
+## 2. Provision Hysteria2
 
 Copy `server/` to the VPS and run the installer as root:
 
@@ -44,16 +50,13 @@ cd /root/med-vpn-server
 bash install.sh
 ```
 
-The script installs Xray-core (via the official XTLS installer), generates the Reality
-keypair + a short ID, writes `/usr/local/etc/xray/config.json` with an empty client list,
-and starts the `xray` service on port 443/tcp. At the end it prints the values you need for
-the bot's `.env` (`XRAY_PUBLIC_KEY`, `XRAY_SHORT_ID`, `XRAY_SERVER_ENDPOINT`, etc).
+The script installs Hysteria2 (via the official get.hy2.sh installer), generates a
+self-signed TLS certificate, writes `/etc/hysteria/config.yaml` with an empty user list,
+and starts the `hysteria-server` service on UDP/443. It also disables any leftover Xray
+service from a previous version of this project. At the end it prints the values you need
+for the bot's `.env`.
 
-Make sure TCP port `443` is open in any external firewall / cloud security group.
-
-`XRAY_SERVER_NAME` defaults to `www.microsoft.com` (the site Reality "impersonates"). You
-can change it in `server/install.sh` before running it if you prefer a different one — pick
-a real, popular site that serves TLS 1.3 on port 443.
+Make sure **UDP** port `443` is open in any external firewall / cloud security group.
 
 ## 3. Deploy the bot
 
@@ -65,7 +68,7 @@ cd /opt/med-vpn/bot
 python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 cp .env.example .env
-# edit .env: BOT_TOKEN, ADMIN_IDS, and the XRAY_* values printed by install.sh
+# edit .env: BOT_TOKEN, ADMIN_IDS, and the HYSTERIA_* values printed by install.sh
 ```
 
 Get `BOT_TOKEN` from [@BotFather](https://t.me/BotFather). Get your own numeric Telegram ID
@@ -82,22 +85,25 @@ journalctl -u med-vpn-bot -f   # check logs
 
 ## 4. Try it
 
-Open your bot in Telegram and send `/start`, then `/getconfig`. You'll get a `vless://...`
-link and a QR code. In **Happ**: Add server → "Add from clipboard" (paste the link) or scan
-the QR code directly.
+Open your bot in Telegram and send `/start`, then `/getconfig`. You'll get a
+`hysteria2://...` link and a QR code. In **Happ**: Add server → "Add from clipboard" (paste
+the link) or scan the QR code directly.
 
 ## Capacity notes
 
-- Each user only needs a UUID (no IP pool, unlike WireGuard) — thousands of clients can
-  share the same Reality keypair/short ID, so there's no practical ceiling at ~200 users.
-- Every `/getconfig`, `/revoke`, or `/admin_revoke` restarts the `xray` process to apply the
-  new client list — this takes well under a second and briefly interrupts other connected
-  users' streams, which is a non-issue at this scale.
+- Each user only needs a username/password pair — no IP pool or per-user keypair, so there's
+  no practical ceiling at ~200 users.
+- Every `/getconfig`, `/revoke`, or `/admin_revoke` restarts `hysteria-server` to apply the
+  new user list — this takes under a second and briefly interrupts other connected users,
+  which is a non-issue at this scale.
 
 ## Security notes
 
-- `bot/med-vpn.db` only stores UUIDs (no private keys), but still keep `DB_PATH` on a
-  host-only path with restrictive permissions and never commit it to git.
+- `bot/med-vpn.db` stores plaintext passwords (needed so `/myconfig` can resend the same
+  credentials) — keep `DB_PATH` on a host-only path with restrictive permissions and never
+  commit it to git.
 - `ADMIN_IDS` gates the `/admin_*` commands — double-check it before deploying.
-- The Reality private key lives only in `/usr/local/etc/xray/config.json` on the server —
-  never share it; only the public key goes to clients.
+- The self-signed certificate means clients connect with `insecure=1` (no CA chain
+  validation) — acceptable for a small private VPN, since the client already trusts the
+  server via its username/password, but be aware it doesn't protect against an
+  on-path attacker impersonating the server the very first time a client connects.
