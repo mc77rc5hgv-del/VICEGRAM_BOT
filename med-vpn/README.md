@@ -103,7 +103,9 @@ the link) or scan the QR code directly.
   credentials) — keep `DB_PATH` on a host-only path with restrictive permissions and never
   commit it to git.
 - `ADMIN_IDS` gates the `/admin_*` commands — double-check it before deploying.
-- The self-signed certificate means clients connect with `insecure=1` (no CA chain
-  validation) — acceptable for a small private VPN, since the client already trusts the
-  server via its username/password, but be aware it doesn't protect against an
-  on-path attacker impersonating the server the very first time a client connects.
+- The self-signed certificate is pinned in each client link via `pinSHA256` (computed from
+  `/etc/hysteria/cert.pem`), so clients verify the exact certificate instead of skipping
+  validation outright — this also avoids the "allow-Insecure has been removed" crash some
+  Xray-core-based clients (incl. some Happ versions) raise on plain `insecure=1` links.
+  If the server certificate is ever regenerated, every issued link becomes invalid since the
+  pin changes — reissue links with `/getconfig` after that.

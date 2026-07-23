@@ -1,4 +1,6 @@
+import hashlib
 import secrets
+import ssl
 import subprocess
 from pathlib import Path
 from urllib.parse import quote
@@ -50,8 +52,15 @@ def remove_user(username: str) -> None:
     _restart_hysteria()
 
 
+def _cert_pin_sha256(cert_path: str) -> str:
+    pem = Path(cert_path).read_text()
+    der = ssl.PEM_cert_to_DER_cert(pem)
+    digest = hashlib.sha256(der).hexdigest().upper()
+    return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+
+
 def build_hysteria_uri(username: str, password: str, label: str) -> str:
     auth = f"{quote(username)}:{quote(password)}"
-    insecure = "1" if settings.hysteria_insecure else "0"
-    params = f"insecure={insecure}&sni={quote(settings.hysteria_sni)}"
+    pin = _cert_pin_sha256(settings.hysteria_cert_path)
+    params = f"sni={quote(settings.hysteria_sni)}&pinSHA256={pin}&insecure=1"
     return f"hysteria2://{auth}@{settings.hysteria_server_endpoint}/?{params}#{quote(label)}"
