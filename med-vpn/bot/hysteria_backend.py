@@ -62,5 +62,5 @@ def _cert_pin_sha256(cert_path: str) -> str:
 def build_hysteria_uri(username: str, password: str, label: str) -> str:
     auth = f"{quote(username)}:{quote(password)}"
     pin = _cert_pin_sha256(settings.hysteria_cert_path)
-    params = f"sni={quote(settings.hysteria_sni)}&pinSHA256={pin}&insecure=1"
+    params = f"sni={quote(settings.hysteria_sni)}&pinSHA256={pin}"
     return f"hysteria2://{auth}@{settings.hysteria_server_endpoint}/?{params}#{quote(label)}"
