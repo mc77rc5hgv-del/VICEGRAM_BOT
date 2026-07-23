@@ -1,0 +1,16 @@
+[Unit]
+Description=MED VPN Telegram bot
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/med-vpn/bot
+EnvironmentFile=/opt/med-vpn/bot/.env
+ExecStart=/opt/med-vpn/bot/venv/bin/python bot.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
