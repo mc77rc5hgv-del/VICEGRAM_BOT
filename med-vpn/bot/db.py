@@ -15,6 +15,24 @@ CREATE TABLE IF NOT EXISTS clients (
     created_at    TEXT NOT NULL,
     revoked_at    TEXT
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    telegram_id   INTEGER PRIMARY KEY,
+    telegram_name TEXT,
+    referred_by   INTEGER,
+    balance       REAL NOT NULL DEFAULT 0,
+    joined_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS purchases (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id  INTEGER NOT NULL,
+    amount       REAL NOT NULL,
+    currency     TEXT NOT NULL,
+    commission   REAL NOT NULL,
+    referrer_id  INTEGER,
+    created_at   TEXT NOT NULL
+);
 """
 
 
@@ -32,7 +50,7 @@ def _connect():
 
 def init_db() -> None:
     with _connect() as conn:
-        conn.execute(_SCHEMA)
+        conn.executescript(_SCHEMA)
 
 
 @dataclass
@@ -108,3 +126,74 @@ def list_active_clients(limit: int = 50, offset: int = 0) -> list[Client]:
             (limit, offset),
         ).fetchall()
         return [_row_to_client(r) for r in rows]
+
+
+@dataclass
+class User:
+    telegram_id: int
+    telegram_name: str | None
+    referred_by: int | None
+    balance: float
+    joined_at: str
+
+
+def _row_to_user(row: sqlite3.Row) -> User:
+    return User(**dict(row))
+
+
+def get_user(telegram_id: int) -> User | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+        return _row_to_user(row) if row else None
+
+
+def get_or_create_user(telegram_id: int, telegram_name: str | None, referred_by: int | None = None) -> User:
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO users (telegram_id, telegram_name, referred_by, balance, joined_at)
+               VALUES (?, ?, ?, 0, ?)
+               ON CONFLICT(telegram_id) DO UPDATE SET telegram_name=excluded.telegram_name""",
+            (telegram_id, telegram_name, referred_by, now),
+        )
+    user = get_user(telegram_id)
+    assert user is not None
+    return user
+
+
+def referral_stats(telegram_id: int) -> dict:
+    with _connect() as conn:
+        invited = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE referred_by = ?", (telegram_id,)
+        ).fetchone()[0]
+        row = conn.execute("SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    return {"invited": invited, "balance": row["balance"] if row else 0.0}
+
+
+def record_purchase(telegram_id: int, amount: float, currency: str) -> dict:
+    user = get_user(telegram_id)
+    referrer_id = user.referred_by if user else None
+    commission = round(amount * settings.referral_commission_rate, 2) if referrer_id else 0.0
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO purchases (telegram_id, amount, currency, commission, referrer_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (telegram_id, amount, currency, commission, referrer_id, now),
+        )
+        if referrer_id and commission > 0:
+            conn.execute(
+                """INSERT INTO users (telegram_id, telegram_name, referred_by, balance, joined_at)
+                   VALUES (?, NULL, NULL, ?, ?)
+                   ON CONFLICT(telegram_id) DO UPDATE SET balance = balance + ?""",
+                (referrer_id, commission, now, commission),
+            )
+    return {"referrer_id": referrer_id, "commission": commission}
+
+
+def payout_balance(telegram_id: int) -> float:
+    user = get_user(telegram_id)
+    amount = user.balance if user else 0.0
+    with _connect() as conn:
+        conn.execute("UPDATE users SET balance = 0 WHERE telegram_id = ?", (telegram_id,))
+    return amount

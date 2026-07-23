@@ -24,5 +24,8 @@ class Settings:
 
     service_name: str = os.environ.get("SERVICE_NAME", "MED VPN")
 
+    referral_commission_rate: float = float(os.environ.get("REFERRAL_COMMISSION_RATE", "0.10"))
+    default_currency: str = os.environ.get("DEFAULT_CURRENCY", "RUB")
+
 
 settings = Settings()

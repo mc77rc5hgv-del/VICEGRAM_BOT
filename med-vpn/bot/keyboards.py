@@ -12,6 +12,7 @@ def main_menu(is_admin: bool) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="❌ Отключить", callback_data="revoke"),
             InlineKeyboardButton(text="ℹ️ Помощь", callback_data="help"),
         ],
+        [InlineKeyboardButton(text="💰 Реферальная программа", callback_data="referral")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_menu")])

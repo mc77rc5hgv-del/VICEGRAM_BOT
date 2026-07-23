@@ -34,6 +34,26 @@ Telegram user  <--->  MED VPN bot (aiogram)  <--->  Hysteria2 (UDP/443) on the s
 - **SQLite** stores one row per Telegram user: username + password + timestamps, so
   `/myconfig` can resend the same link without regenerating it.
 
+## Referral program
+
+There is no payment gateway wired into the bot yet — access is currently free via
+`/getconfig`. The referral system tracks attribution and commission bookkeeping so it's
+ready the moment payments exist:
+
+- `/referral` (or the 💰 button) gives each user a personal link
+  `https://t.me/<bot>?start=ref_<telegram_id>`. Whoever starts the bot through that link gets
+  `referred_by` set once, permanently (re-using the link, or any other referral link, later
+  never overwrites it).
+- `/admin_purchase <telegram_id> <amount> [currency]` — admin-only. Records a purchase and,
+  if the buyer has a referrer, credits them `REFERRAL_COMMISSION_RATE` (default 10%) of the
+  amount to their balance. Use this manually today (e.g. after receiving a crypto/bank
+  payment outside the bot); once a real payment gateway is added, its webhook should call
+  `db.record_purchase(...)` directly instead.
+- `/admin_payout <telegram_id>` — admin-only. Zeroes out a referrer's balance once you've
+  actually sent them their commission (bank transfer, crypto, etc. — payout itself is manual,
+  this just marks it done).
+- Users see their invite count and balance via `/referral`.
+
 ## 1. Get a VPS
 
 Any VPS outside Russia works (Netherlands, Germany, etc). Minimum spec: 1 vCPU / 1-2 GB

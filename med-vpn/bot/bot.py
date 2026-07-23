@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     BotCommand,
     BotCommandScopeChat,
@@ -32,6 +32,7 @@ USER_COMMANDS = [
     BotCommand(command="myconfig", description="Прислать ссылку повторно"),
     BotCommand(command="status", description="Статус подключения"),
     BotCommand(command="revoke", description="Отключить доступ"),
+    BotCommand(command="referral", description="Реферальная программа"),
     BotCommand(command="help", description="Помощь"),
 ]
 
@@ -39,6 +40,8 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="admin_stats", description="Статистика (админ)"),
     BotCommand(command="admin_list", description="Список пользователей (админ)"),
     BotCommand(command="admin_revoke", description="Отключить пользователя по ID (админ)"),
+    BotCommand(command="admin_purchase", description="Записать покупку и начислить рефералу (админ)"),
+    BotCommand(command="admin_payout", description="Отметить выплату рефералу (админ)"),
 ]
 
 HELP_TEXT = (
@@ -152,6 +155,23 @@ async def _handle_revoke(bot: Bot, chat_id: int, telegram_id: int) -> None:
     )
 
 
+async def _send_referral(bot: Bot, chat_id: int, telegram_id: int) -> None:
+    me = await bot.get_me()
+    link = f"https://t.me/{me.username}?start=ref_{telegram_id}"
+    stats = db.referral_stats(telegram_id)
+    percent = int(settings.referral_commission_rate * 100)
+    await bot.send_message(
+        chat_id,
+        "💰 *Реферальная программа*\n\n"
+        f"Приглашайте друзей — получайте {percent}% от суммы их покупок.\n\n"
+        f"Ваша ссылка:\n`{link}`\n\n"
+        f"Приглашено: {stats['invited']}\n"
+        f"Баланс: {stats['balance']:.2f} {settings.default_currency}",
+        parse_mode="Markdown",
+        reply_markup=kb.main_menu(_is_admin(telegram_id)),
+    )
+
+
 async def _send_admin_stats(bot: Bot, chat_id: int) -> None:
     s = db.stats()
     await bot.send_message(
@@ -179,8 +199,23 @@ async def _send_admin_list(bot: Bot, chat_id: int, offset: int) -> None:
 # ---- Commands ----
 
 @router.message(Command("start"))
-async def cmd_start(message: Message) -> None:
-    await _send_welcome(message.bot, message.chat.id, message.from_user.id)
+async def cmd_start(message: Message, command: CommandObject) -> None:
+    telegram_id = message.from_user.id
+    referred_by = None
+    if command.args and command.args.startswith("ref_"):
+        try:
+            candidate = int(command.args.removeprefix("ref_"))
+            if candidate != telegram_id:
+                referred_by = candidate
+        except ValueError:
+            pass
+    db.get_or_create_user(telegram_id, message.from_user.username, referred_by)
+    await _send_welcome(message.bot, message.chat.id, telegram_id)
+
+
+@router.message(Command("referral"))
+async def cmd_referral(message: Message) -> None:
+    await _send_referral(message.bot, message.chat.id, message.from_user.id)
 
 
 @router.message(Command("help"))
@@ -242,6 +277,47 @@ async def cmd_admin_revoke(message: Message) -> None:
     await message.answer(f"Доступ пользователя {target_id} отозван.")
 
 
+@router.message(Command("admin_purchase"))
+async def cmd_admin_purchase(message: Message) -> None:
+    if not _is_admin(message.from_user.id):
+        return
+    parts = (message.text or "").split()
+    if len(parts) not in (3, 4) or not parts[1].isdigit():
+        await message.answer("Использование: /admin_purchase <telegram_id> <сумма> [валюта]")
+        return
+    target_id = int(parts[1])
+    try:
+        amount = float(parts[2])
+    except ValueError:
+        await message.answer("Сумма должна быть числом.")
+        return
+    currency = parts[3] if len(parts) == 4 else settings.default_currency
+
+    db.get_or_create_user(target_id, None)
+    result = db.record_purchase(target_id, amount, currency)
+    text = f"Записана покупка: {target_id} — {amount} {currency}."
+    if result["referrer_id"]:
+        text += f"\nНачислено рефереру {result['referrer_id']}: {result['commission']:.2f} {currency}"
+    else:
+        text += "\nБез реферала — начислять некому."
+    await message.answer(text)
+
+
+@router.message(Command("admin_payout"))
+async def cmd_admin_payout(message: Message) -> None:
+    if not _is_admin(message.from_user.id):
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Использование: /admin_payout <telegram_id>")
+        return
+    target_id = int(parts[1])
+    amount = db.payout_balance(target_id)
+    await message.answer(
+        f"Баланс пользователя {target_id} обнулён. К выплате было: {amount:.2f} {settings.default_currency}"
+    )
+
+
 # ---- Inline button callbacks ----
 
 @router.callback_query(F.data == "main_menu")
@@ -286,6 +362,12 @@ async def cb_revoke(callback: CallbackQuery) -> None:
 async def cb_revoke_confirm(callback: CallbackQuery) -> None:
     await callback.answer()
     await _handle_revoke(callback.bot, callback.message.chat.id, callback.from_user.id)
+
+
+@router.callback_query(F.data == "referral")
+async def cb_referral(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await _send_referral(callback.bot, callback.message.chat.id, callback.from_user.id)
 
 
 @router.callback_query(F.data == "admin_menu")
