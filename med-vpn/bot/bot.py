@@ -264,14 +264,15 @@ async def _send_admin_list(bot: Bot, chat_id: int, offset: int) -> None:
     if not clients:
         text = "Активных пользователей нет." if offset == 0 else "Больше пользователей нет."
     else:
+        # Plain text on purpose: telegram_name is a user-controlled username and may contain
+        # Markdown special characters (e.g. underscores), which would otherwise break parsing
+        # and silently fail to send.
         lines = []
         for c in clients:
             sub = f", до {_fmt_dt(c.expires_at)}" if c.expires_at else ", бессрочно"
-            lines.append(f"`{c.telegram_id}` @{c.telegram_name or '-'} — {_fmt_dt(c.created_at)}{sub}")
-        text = f"👥 *Пользователи* ({offset + 1}-{offset + len(clients)})\n\n" + "\n".join(lines)
-    await bot.send_message(
-        chat_id, text, parse_mode="Markdown", reply_markup=kb.list_pagination(offset, PAGE_SIZE, has_more)
-    )
+            lines.append(f"{c.telegram_id} @{c.telegram_name or '-'} — {_fmt_dt(c.created_at)}{sub}")
+        text = f"👥 Пользователи ({offset + 1}-{offset + len(clients)})\n\n" + "\n".join(lines)
+    await bot.send_message(chat_id, text, reply_markup=kb.list_pagination(offset, PAGE_SIZE, has_more))
 
 
 # ---- Commands ----
