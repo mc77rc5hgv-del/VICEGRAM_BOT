@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject
@@ -10,6 +11,7 @@ from aiogram.types import (
     BotCommandScopeDefault,
     BufferedInputFile,
     CallbackQuery,
+    FSInputFile,
     Message,
 )
 
@@ -44,6 +46,17 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="admin_payout", description="Отметить выплату рефералу (админ)"),
 ]
 
+WELCOME_TEXT = (
+    "🛡️ *Добро пожаловать в MED VPN!*\n\n"
+    "VPN, который просто работает: YouTube, Telegram, ChatGPT, банки — всё открывается, "
+    "без лагов и переключений.\n\n"
+    "🚀 Высокая скорость\n"
+    "🚫 Без рекламы\n"
+    "📱 Одна подписка на все устройства\n"
+    "♾️ Без ограничений по трафику\n\n"
+    "Выберите действие:"
+)
+
 HELP_TEXT = (
     f"*{settings.service_name}* — VPN на Hysteria2, подключение через приложение Happ.\n\n"
     "🔑 *Получить доступ* — выдаёт вашу персональную ссылку и QR-код\n"
@@ -66,12 +79,18 @@ def _fmt_dt(iso: str) -> str:
 
 
 async def _send_welcome(bot: Bot, chat_id: int, telegram_id: int) -> None:
-    await bot.send_message(
-        chat_id,
-        f"👋 Добро пожаловать в *{settings.service_name}*!\n\nВыберите действие:",
-        parse_mode="Markdown",
-        reply_markup=kb.main_menu(_is_admin(telegram_id)),
-    )
+    markup = kb.main_menu(_is_admin(telegram_id))
+    image_path = Path(settings.welcome_image_path)
+    if image_path.is_file():
+        await bot.send_photo(
+            chat_id,
+            FSInputFile(image_path),
+            caption=WELCOME_TEXT,
+            parse_mode="Markdown",
+            reply_markup=markup,
+        )
+    else:
+        await bot.send_message(chat_id, WELCOME_TEXT, parse_mode="Markdown", reply_markup=markup)
 
 
 async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:

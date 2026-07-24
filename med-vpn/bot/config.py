@@ -27,5 +27,7 @@ class Settings:
     referral_commission_rate: float = float(os.environ.get("REFERRAL_COMMISSION_RATE", "0.10"))
     default_currency: str = os.environ.get("DEFAULT_CURRENCY", "RUB")
 
+    welcome_image_path: str = os.environ.get("WELCOME_IMAGE_PATH", "assets/welcome.jpg")
+
 
 settings = Settings()
