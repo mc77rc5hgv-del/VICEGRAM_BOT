@@ -74,6 +74,17 @@ HELP_TEXT = (
 )
 
 
+def _build_plans_intro() -> str:
+    lines = [
+        f"{p.emoji} {p.label} — *{p.price_rub} ₽*" + (f" _(-{p.discount_percent}%)_" if p.discount_percent else "")
+        for p in plans.PLANS
+    ]
+    return "💳 *Тарифы MED VPN*\n\nЧем длиннее срок — тем выгоднее подписка 🙌\n\n" + "\n".join(lines)
+
+
+PLANS_INTRO = _build_plans_intro()
+
+
 def _is_admin(telegram_id: int) -> bool:
     return telegram_id in settings.admin_ids
 
@@ -292,7 +303,7 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(Command("subscribe"))
 async def cmd_subscribe(message: Message) -> None:
-    await message.answer("💳 Выберите тариф:", reply_markup=kb.plans_menu())
+    await message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
 
 
 @router.message(Command("getconfig"))
@@ -490,7 +501,7 @@ async def cb_help(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "plans")
 async def cb_plans(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.answer("💳 Выберите тариф:", reply_markup=kb.plans_menu())
+    await callback.message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
 
 
 @router.callback_query(F.data.startswith("plan:"))
@@ -500,8 +511,12 @@ async def cb_plan_selected(callback: CallbackQuery) -> None:
     plan = plans.PLANS_BY_KEY.get(plan_key)
     if not plan:
         return
+    discount = f" 🔥 экономия {plan.discount_percent}%" if plan.discount_percent else ""
     await callback.message.answer(
-        f"*{plan.label}* — {plan.price_rub} ₽ или {plan.price_stars} ⭐\n\nВыберите способ оплаты:",
+        f"{plan.emoji} *{plan.label}*{discount}\n\n"
+        f"💰 *{plan.price_rub} ₽* (≈{plan.price_per_month:.0f} ₽/мес)\n"
+        f"⭐ или *{plan.price_stars}* Telegram Stars\n\n"
+        "Как хотите оплатить?",
         parse_mode="Markdown",
         reply_markup=kb.payment_method_menu(plan_key),
     )
@@ -520,7 +535,10 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
     )
     url = f"https://t.me/{settings.support_username}?text={quote(text)}"
     await callback.message.answer(
-        f"Для оплаты рублями напишите менеджеру — тариф «{plan.label}» ({plan.price_rub} ₽):",
+        f"💵 *Оплата рублями*\n\n"
+        f"Тариф: {plan.emoji} {plan.label} — *{plan.price_rub} ₽*\n\n"
+        "Нажмите кнопку ниже — менеджер пришлёт реквизиты для оплаты:",
+        parse_mode="Markdown",
         reply_markup=kb.support_link_menu(url),
     )
 

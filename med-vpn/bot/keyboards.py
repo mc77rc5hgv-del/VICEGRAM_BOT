@@ -23,13 +23,13 @@ def main_menu(is_admin: bool) -> InlineKeyboardMarkup:
 
 
 def plans_menu() -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(
-            text=f"{p.label} — {p.price_rub} ₽",
+    rows = []
+    for p in plans_module.PLANS:
+        discount = f"  (-{p.discount_percent}%)" if p.discount_percent else ""
+        rows.append([InlineKeyboardButton(
+            text=f"{p.emoji} {p.label} — {p.price_rub} ₽{discount}",
             callback_data=f"plan:{p.key}",
-        )]
-        for p in plans_module.PLANS
-    ]
+        )])
     rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
