@@ -1,7 +1,7 @@
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from config import settings
@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS clients (
     username      TEXT NOT NULL UNIQUE,
     password      TEXT NOT NULL,
     created_at    TEXT NOT NULL,
-    revoked_at    TEXT
+    revoked_at    TEXT,
+    expires_at    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -51,6 +52,9 @@ def _connect():
 def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(clients)").fetchall()}
+        if "expires_at" not in cols:
+            conn.execute("ALTER TABLE clients ADD COLUMN expires_at TEXT")
 
 
 @dataclass
@@ -61,6 +65,7 @@ class Client:
     password: str
     created_at: str
     revoked_at: str | None
+    expires_at: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -81,17 +86,19 @@ def get_active_client(telegram_id: int) -> Client | None:
 
 
 def create_client(telegram_id: int, telegram_name: str | None, username: str, password: str) -> Client:
+    """Free/unlimited access (/getconfig) — clears any prior subscription expiry."""
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO clients (telegram_id, telegram_name, username, password, created_at, revoked_at)
-               VALUES (?, ?, ?, ?, ?, NULL)
+            """INSERT INTO clients (telegram_id, telegram_name, username, password, created_at, revoked_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, NULL, NULL)
                ON CONFLICT(telegram_id) DO UPDATE SET
                  telegram_name=excluded.telegram_name,
                  username=excluded.username,
                  password=excluded.password,
                  created_at=excluded.created_at,
-                 revoked_at=NULL""",
+                 revoked_at=NULL,
+                 expires_at=NULL""",
             (telegram_id, telegram_name, username, password, now),
         )
     client = get_active_client(telegram_id)
@@ -112,11 +119,71 @@ def revoke_client(telegram_id: int) -> Client | None:
     return client
 
 
+def extend_expiry(telegram_id: int, months: int) -> str:
+    """Extends (or starts) a client's paid subscription. Assumes the client row already exists."""
+    client = get_active_client(telegram_id)
+    now = datetime.now(timezone.utc)
+    base = now
+    if client and client.expires_at:
+        try:
+            current = datetime.fromisoformat(client.expires_at)
+            if current > now:
+                base = current
+        except ValueError:
+            pass
+    new_expiry = (base + timedelta(days=30 * months)).isoformat()
+    with _connect() as conn:
+        conn.execute("UPDATE clients SET expires_at = ? WHERE telegram_id = ?", (new_expiry, telegram_id))
+    return new_expiry
+
+
+def list_expired_clients() -> list[Client]:
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM clients WHERE revoked_at IS NULL AND expires_at IS NOT NULL AND expires_at < ?",
+            (now,),
+        ).fetchall()
+        return [_row_to_client(r) for r in rows]
+
+
+def find_by_username(username: str) -> int | None:
+    username = username.lstrip("@")
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT telegram_id FROM users WHERE telegram_name = ? COLLATE NOCASE
+               UNION
+               SELECT telegram_id FROM clients WHERE telegram_name = ? COLLATE NOCASE""",
+            (username, username),
+        ).fetchone()
+        return row["telegram_id"] if row else None
+
+
 def stats() -> dict:
     with _connect() as conn:
         active = conn.execute("SELECT COUNT(*) FROM clients WHERE revoked_at IS NULL").fetchone()[0]
         revoked = conn.execute("SELECT COUNT(*) FROM clients WHERE revoked_at IS NOT NULL").fetchone()[0]
-    return {"active": active, "revoked": revoked}
+        with_subscription = conn.execute(
+            "SELECT COUNT(*) FROM clients WHERE revoked_at IS NULL AND expires_at IS NOT NULL"
+        ).fetchone()[0]
+        total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        purchases_count = conn.execute("SELECT COUNT(*) FROM purchases").fetchone()[0]
+        revenue_rows = conn.execute(
+            "SELECT currency, SUM(amount) AS total FROM purchases GROUP BY currency"
+        ).fetchall()
+        commission_total = conn.execute("SELECT COALESCE(SUM(commission), 0) FROM purchases").fetchone()[0]
+        balance_owed = conn.execute("SELECT COALESCE(SUM(balance), 0) FROM users").fetchone()[0]
+    return {
+        "active": active,
+        "revoked": revoked,
+        "with_subscription": with_subscription,
+        "free_unlimited": active - with_subscription,
+        "total_users": total_users,
+        "purchases_count": purchases_count,
+        "revenue": {r["currency"]: r["total"] for r in revenue_rows},
+        "commission_total": commission_total,
+        "balance_owed": balance_owed,
+    }
 
 
 def list_active_clients(limit: int = 50, offset: int = 0) -> list[Client]:

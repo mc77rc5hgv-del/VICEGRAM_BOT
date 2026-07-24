@@ -34,11 +34,41 @@ Telegram user  <--->  MED VPN bot (aiogram)  <--->  Hysteria2 (UDP/443) on the s
 - **SQLite** stores one row per Telegram user: username + password + timestamps, so
   `/myconfig` can resend the same link without regenerating it.
 
+## Subscriptions & payments
+
+`/subscribe` (or the 💳 button) shows four plans (`bot/plans.py`), priced ~40% below the
+reference service, each with a monthly-equivalent discount for longer terms:
+
+| Plan | Price | Telegram Stars |
+|---|---|---|
+| 1 month | 149 ₽ | 150 ⭐ |
+| 3 months | 389 ₽ | 390 ⭐ |
+| 6 months | 699 ₽ | 700 ⭐ |
+| 12 months | 1190 ₽ | 1190 ⭐ |
+
+Two payment paths per plan:
+
+- **⭐ Telegram Stars** — fully automatic via the Bot API's native payments (currency `XTR`,
+  no external provider token needed). On `successful_payment` the bot provisions/extends the
+  buyer's Hysteria2 access, sets `clients.expires_at`, and records the purchase (crediting
+  their referrer, if any) — no admin step required.
+- **💵 Rubles** — no payment gateway is wired in, so the bot instead opens a chat with
+  `SUPPORT_USERNAME` (`https://t.me/<SUPPORT_USERNAME>?text=...`) pre-filled with the plan
+  name and price, asking for payment details. Once you've actually received the money
+  (bank transfer, SBP, crypto, however), run `/admin_grant <@username|telegram_id> <plan_key>`
+  to activate their subscription and notify them — this is the same
+  `_grant_subscription` path the Stars flow uses, so referral commission is credited
+  identically.
+
+Subscriptions have a real expiry (`clients.expires_at`): an hourly background sweep in
+`bot.py` (`_expiry_sweep`) revokes Hysteria2 access and notifies the user once their plan
+lapses. `/getconfig` (free/unlimited access, unchanged) always clears any expiry — the two
+are mutually exclusive per user by design.
+
 ## Referral program
 
-There is no payment gateway wired into the bot yet — access is currently free via
-`/getconfig`. The referral system tracks attribution and commission bookkeeping so it's
-ready the moment payments exist:
+The referral system tracks attribution and commission bookkeeping, and is wired into both
+subscription payment paths above:
 
 - `/referral` (or the 💰 button) gives each user a personal link
   `https://t.me/<bot>?start=ref_<telegram_id>`. Whoever starts the bot through that link gets

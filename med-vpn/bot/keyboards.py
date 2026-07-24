@@ -1,8 +1,11 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+import plans as plans_module
+
 
 def main_menu(is_admin: bool) -> InlineKeyboardMarkup:
     rows = [
+        [InlineKeyboardButton(text="💳 Тарифы", callback_data="plans")],
         [InlineKeyboardButton(text="🔑 Получить доступ", callback_data="getconfig")],
         [
             InlineKeyboardButton(text="📋 Мой конфиг", callback_data="myconfig"),
@@ -17,6 +20,33 @@ def main_menu(is_admin: bool) -> InlineKeyboardMarkup:
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def plans_menu() -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{p.label} — {p.price_rub} ₽",
+            callback_data=f"plan:{p.key}",
+        )]
+        for p in plans_module.PLANS
+    ]
+    rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def payment_method_menu(plan_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💵 Оплатить рублями", callback_data=f"pay_rub:{plan_key}")],
+        [InlineKeyboardButton(text="⭐ Оплатить Telegram Stars", callback_data=f"pay_stars:{plan_key}")],
+        [InlineKeyboardButton(text="⬅️ Тарифы", callback_data="plans")],
+    ])
+
+
+def support_link_menu(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✉️ Написать в поддержку", url=url)],
+        [InlineKeyboardButton(text="⬅️ Тарифы", callback_data="plans")],
+    ])
 
 
 def admin_menu() -> InlineKeyboardMarkup:

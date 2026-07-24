@@ -29,5 +29,7 @@ class Settings:
 
     welcome_image_path: str = os.environ.get("WELCOME_IMAGE_PATH", "assets/welcome.jpg")
 
+    support_username: str = os.environ.get("SUPPORT_USERNAME", "vmeda_helper")
+
 
 settings = Settings()
