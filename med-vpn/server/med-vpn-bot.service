@@ -6,9 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/med-vpn/bot
-EnvironmentFile=/opt/med-vpn/bot/.env
-ExecStart=/opt/med-vpn/bot/venv/bin/python bot.py
+WorkingDirectory=/opt/vicegram-bot-src/med-vpn/bot
+EnvironmentFile=/opt/vicegram-bot-src/med-vpn/bot/.env
+ExecStart=/opt/vicegram-bot-src/med-vpn/bot/venv/bin/python bot.py
 Restart=on-failure
 RestartSec=5
 

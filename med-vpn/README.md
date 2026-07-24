@@ -103,6 +103,35 @@ systemctl enable --now med-vpn-bot
 journalctl -u med-vpn-bot -f   # check logs
 ```
 
+## Deploying updates
+
+The bot on the server runs from a direct git checkout (not a copied folder), authenticated
+via a read-only SSH deploy key added to this repo. This means every future code change is
+one command on the server — no more copying files by hand:
+
+```bash
+cd /opt/vicegram-bot-src && git pull && systemctl restart med-vpn-bot
+```
+
+If `requirements.txt` changed, also run
+`./med-vpn/bot/venv/bin/pip install -r med-vpn/bot/requirements.txt` before restarting.
+
+One-time setup for a new server (already done for the current one):
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/medvpn_deploy -N "" -C "medvpn-server-deploy"
+cat ~/.ssh/medvpn_deploy.pub   # add as a read-only Deploy Key on the GitHub repo
+printf '%s\n' 'Host github.com' '  IdentityFile ~/.ssh/medvpn_deploy' '  IdentitiesOnly yes' > ~/.ssh/config
+chmod 600 ~/.ssh/config
+ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+git clone --branch <branch> git@github.com:mc77rc5hgv-del/VICEGRAM_BOT.git /opt/vicegram-bot-src
+cp <old .env> /opt/vicegram-bot-src/med-vpn/bot/.env
+cd /opt/vicegram-bot-src/med-vpn/bot && python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+```
+
+Then point `med-vpn-bot.service`'s `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` at
+`/opt/vicegram-bot-src/med-vpn/bot/...` and `systemctl daemon-reload`.
+
 ## 4. Try it
 
 Open your bot in Telegram and send `/start`, then `/getconfig`. You'll get a
