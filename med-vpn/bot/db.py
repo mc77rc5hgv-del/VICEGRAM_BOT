@@ -137,6 +137,15 @@ def extend_expiry(telegram_id: int, months: int) -> str:
     return new_expiry
 
 
+def list_free_unlimited_clients() -> list[Client]:
+    """Active clients with no subscription expiry — i.e. the free /getconfig path."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM clients WHERE revoked_at IS NULL AND expires_at IS NULL"
+        ).fetchall()
+        return [_row_to_client(r) for r in rows]
+
+
 def list_expired_clients() -> list[Client]:
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:

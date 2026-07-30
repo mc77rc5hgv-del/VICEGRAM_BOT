@@ -48,6 +48,7 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="admin_list", description="Список пользователей (админ)"),
     BotCommand(command="admin_revoke", description="Отключить пользователя по ID (админ)"),
     BotCommand(command="admin_grant", description="Выдать подписку по ID/username (админ)"),
+    BotCommand(command="admin_reset_free", description="Сбросить бесплатный безлимитный доступ (админ)"),
     BotCommand(command="admin_purchase", description="Записать покупку и начислить рефералу (админ)"),
     BotCommand(command="admin_payout", description="Отметить выплату рефералу (админ)"),
 ]
@@ -408,6 +409,78 @@ async def cmd_admin_grant(message: Message) -> None:
         log.exception("Failed to notify %s about granted subscription", target_id)
 
 
+RESET_FREE_NOTICE = (
+    f"👋 Спасибо, что пользовались {settings.service_name} бесплатно!\n\n"
+    "Бесплатный безлимитный доступ отключён. Чтобы продолжить пользоваться VPN, оформите подписку:\n"
+    "💳 /subscribe — от 149 ₽/мес\n\n"
+    "Хотите пользоваться выгоднее? Приглашайте друзей и получайте 10% с их покупок:\n"
+    "💰 /referral"
+)
+
+
+def _free_unlimited_excluding_admins() -> list[db.Client]:
+    return [c for c in db.list_free_unlimited_clients() if c.telegram_id not in settings.admin_ids]
+
+
+@router.message(Command("admin_reset_free"))
+async def cmd_admin_reset_free(message: Message) -> None:
+    if not _is_admin(message.from_user.id):
+        return
+    clients = _free_unlimited_excluding_admins()
+    if not clients:
+        await message.answer("Бесплатных безлимитных пользователей (кроме админов) нет.")
+        return
+    await message.answer(
+        f"⚠️ Будет отключён бесплатный доступ у {len(clients)} пользователей (админы не затрагиваются), "
+        "каждому придёт уведомление с приглашением оформить подписку.\n\nПродолжить?",
+        reply_markup=kb.reset_free_confirm(len(clients)),
+    )
+
+
+@router.callback_query(F.data == "admin_reset_free")
+async def cb_admin_reset_free(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if not _is_admin(callback.from_user.id):
+        return
+    clients = _free_unlimited_excluding_admins()
+    if not clients:
+        await callback.message.answer(
+            "Бесплатных безлимитных пользователей (кроме админов) нет.", reply_markup=kb.admin_menu()
+        )
+        return
+    await callback.message.answer(
+        f"⚠️ Будет отключён бесплатный доступ у {len(clients)} пользователей (админы не затрагиваются), "
+        "каждому придёт уведомление с приглашением оформить подписку.\n\nПродолжить?",
+        reply_markup=kb.reset_free_confirm(len(clients)),
+    )
+
+
+@router.callback_query(F.data == "admin_reset_free_confirm")
+async def cb_admin_reset_free_confirm(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if not _is_admin(callback.from_user.id):
+        return
+    clients = _free_unlimited_excluding_admins()
+    reset_count = 0
+    notify_failed = 0
+    for client in clients:
+        try:
+            hysteria.remove_user(client.username)
+        except hysteria.HysteriaError:
+            log.exception("Failed to remove client %s from Hysteria during bulk reset", client.username)
+        db.revoke_client(client.telegram_id)
+        reset_count += 1
+        try:
+            await callback.bot.send_message(client.telegram_id, RESET_FREE_NOTICE)
+        except Exception:
+            notify_failed += 1
+            log.exception("Failed to notify %s about free access reset", client.telegram_id)
+    await callback.message.answer(
+        f"Готово: отключено {reset_count} пользователей. Не удалось отправить уведомление: {notify_failed}.",
+        reply_markup=kb.admin_menu(),
+    )
+
+
 @router.message(Command("admin_purchase"))
 async def cmd_admin_purchase(message: Message) -> None:
     if not _is_admin(message.from_user.id):
@@ -538,9 +611,35 @@ async def cb_pay_rub(callback: CallbackQuery) -> None:
     await callback.message.answer(
         f"💵 *Оплата рублями*\n\n"
         f"Тариф: {plan.emoji} {plan.label} — *{plan.price_rub} ₽*\n\n"
-        "Нажмите кнопку ниже — менеджер пришлёт реквизиты для оплаты:",
+        "Нажмите кнопку ниже — менеджер пришлёт реквизиты для оплаты.\n"
+        "После оплаты нажмите «Я оплатил(а)» — менеджеру придёт заявка.",
         parse_mode="Markdown",
-        reply_markup=kb.support_link_menu(url),
+        reply_markup=kb.support_link_menu(url, plan_key),
+    )
+
+
+@router.callback_query(F.data.startswith("paid_notify:"))
+async def cb_paid_notify(callback: CallbackQuery) -> None:
+    await callback.answer("Менеджер уведомлён!")
+    plan_key = callback.data.split(":", 1)[1]
+    plan = plans.PLANS_BY_KEY.get(plan_key)
+    if not plan:
+        return
+    user = callback.from_user
+    uname = f"@{user.username}" if user.username else "(без username)"
+    text = (
+        "💵 Заявка на оплату рублями\n\n"
+        f"Пользователь: {uname} (id {user.id})\n"
+        f"Тариф: {plan.emoji} {plan.label} — {plan.price_rub} ₽\n\n"
+        f"Выдать: /admin_grant {user.id} {plan.key}"
+    )
+    for admin_id in settings.admin_ids:
+        try:
+            await callback.bot.send_message(admin_id, text)
+        except Exception:
+            log.exception("Failed to notify admin %s about payment claim", admin_id)
+    await callback.message.answer(
+        "Спасибо! Менеджер проверит оплату и активирует подписку — обычно это занимает немного времени."
     )
 
 

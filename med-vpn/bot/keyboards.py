@@ -42,9 +42,10 @@ def payment_method_menu(plan_key: str) -> InlineKeyboardMarkup:
     ])
 
 
-def support_link_menu(url: str) -> InlineKeyboardMarkup:
+def support_link_menu(url: str, plan_key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✉️ Написать в поддержку", url=url)],
+        [InlineKeyboardButton(text="✅ Я оплатил(а)", callback_data=f"paid_notify:{plan_key}")],
         [InlineKeyboardButton(text="⬅️ Тарифы", callback_data="plans")],
     ])
 
@@ -53,7 +54,15 @@ def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton(text="👥 Список пользователей", callback_data="admin_list:0")],
+        [InlineKeyboardButton(text="🚫 Сбросить бесплатный доступ", callback_data="admin_reset_free")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
+
+
+def reset_free_confirm(count: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"✅ Да, отключить у {count}", callback_data="admin_reset_free_confirm")],
+        [InlineKeyboardButton(text="Отмена", callback_data="admin_menu")],
     ])
 
 
