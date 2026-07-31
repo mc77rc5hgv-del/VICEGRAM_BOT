@@ -126,19 +126,42 @@ async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
     await bot.send_photo(chat_id, BufferedInputFile(qr_png.read(), filename="med-vpn-qr.png"))
 
 
-async def _send_no_link_yet(bot: Bot, chat_id: int, telegram_id: int) -> None:
+async def _send_no_link_yet(bot: Bot, chat_id: int, telegram_id: int, invited: int = 0) -> None:
+    threshold = settings.referral_free_threshold
+    remaining = max(0, threshold - invited)
     await bot.send_message(
         chat_id,
-        "У вас пока нет ссылки. Нажмите «💳 Тарифы», чтобы оформить подписку.",
+        "У вас пока нет доступа.\n\n"
+        f"🆓 Пригласите {threshold} друзей по реферальной ссылке (/referral) — получите доступ "
+        f"бесплатно (осталось пригласить: {remaining}).\n"
+        "💳 Или оформите подписку прямо сейчас: /subscribe",
         reply_markup=kb.main_menu(_is_admin(telegram_id)),
     )
 
 
-async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int) -> None:
+async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int, telegram_name: str | None) -> None:
     client = db.get_active_client(telegram_id)
-    if not client:
-        await _send_no_link_yet(bot, chat_id, telegram_id)
+    if client:
+        await _send_config(bot, chat_id, client)
         return
+
+    stats = db.referral_stats(telegram_id)
+    if stats["invited"] < settings.referral_free_threshold:
+        await _send_no_link_yet(bot, chat_id, telegram_id, stats["invited"])
+        return
+
+    try:
+        username, password = hysteria.generate_credentials(telegram_id)
+        hysteria.add_user(username, password)
+    except hysteria.HysteriaError as exc:
+        log.exception("Failed to provision referral-earned client for %s", telegram_id)
+        await bot.send_message(chat_id, f"⚠️ Не удалось создать ссылку: {exc}")
+        return
+
+    client = db.create_client(
+        telegram_id=telegram_id, telegram_name=telegram_name, username=username, password=password
+    )
+    await bot.send_message(chat_id, f"🎉 Вы пригласили {stats['invited']} друзей — вот ваш бесплатный доступ!")
     await _send_config(bot, chat_id, client)
 
 
@@ -290,7 +313,7 @@ async def cmd_getconfig(message: Message) -> None:
 
 @router.message(Command("myconfig"))
 async def cmd_myconfig(message: Message) -> None:
-    await _handle_myconfig(message.bot, message.chat.id, message.from_user.id)
+    await _handle_myconfig(message.bot, message.chat.id, message.from_user.id, message.from_user.username)
 
 
 @router.message(Command("status"))
@@ -649,7 +672,7 @@ async def cb_getconfig(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "myconfig")
 async def cb_myconfig(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _handle_myconfig(callback.bot, callback.message.chat.id, callback.from_user.id)
+    await _handle_myconfig(callback.bot, callback.message.chat.id, callback.from_user.id, callback.from_user.username)
 
 
 @router.callback_query(F.data == "status")
