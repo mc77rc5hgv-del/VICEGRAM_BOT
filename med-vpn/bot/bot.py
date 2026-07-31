@@ -35,7 +35,6 @@ PAGE_SIZE = 30
 USER_COMMANDS = [
     BotCommand(command="start", description="Главное меню"),
     BotCommand(command="subscribe", description="Тарифы и оплата"),
-    BotCommand(command="getconfig", description="Получить ссылку подключения"),
     BotCommand(command="myconfig", description="Прислать ссылку повторно"),
     BotCommand(command="status", description="Статус подключения"),
     BotCommand(command="revoke", description="Отключить доступ"),
@@ -66,9 +65,8 @@ WELCOME_TEXT = (
 
 HELP_TEXT = (
     f"*{settings.service_name}* — VPN на Hysteria2, подключение через приложение Happ.\n\n"
-    "💳 *Тарифы* — платные подписки (рубли или Telegram Stars)\n"
-    "🔑 *Получить доступ* — бесплатная персональная ссылка и QR-код\n"
-    "📋 *Мой конфиг* — прислать ту же ссылку ещё раз\n"
+    "💳 *Тарифы* — оформить подписку (рубли или Telegram Stars)\n"
+    "📋 *Мой конфиг* — прислать вашу ссылку ещё раз\n"
     "📊 *Статус* — когда выдан доступ и до какого числа действует подписка\n"
     "❌ *Отключить* — отозвать свой доступ\n\n"
     "Как подключиться: откройте Happ → добавьте сервер по ссылке или QR-коду → включите подключение."
@@ -128,41 +126,18 @@ async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
     await bot.send_photo(chat_id, BufferedInputFile(qr_png.read(), filename="med-vpn-qr.png"))
 
 
-async def _handle_getconfig(bot: Bot, chat_id: int, telegram_id: int, telegram_name: str | None) -> None:
-    existing = db.get_active_client(telegram_id)
-    if existing:
-        await bot.send_message(
-            chat_id,
-            "У вас уже есть активная ссылка. Нажмите «Мой конфиг», чтобы получить её снова.",
-            reply_markup=kb.main_menu(_is_admin(telegram_id)),
-        )
-        return
-
-    username, password = hysteria.generate_credentials(telegram_id)
-    try:
-        hysteria.add_user(username, password)
-    except hysteria.HysteriaError as exc:
-        log.exception("Failed to provision client for %s", telegram_id)
-        await bot.send_message(chat_id, f"⚠️ Не удалось создать ссылку: {exc}")
-        return
-
-    client = db.create_client(
-        telegram_id=telegram_id,
-        telegram_name=telegram_name,
-        username=username,
-        password=password,
+async def _send_no_link_yet(bot: Bot, chat_id: int, telegram_id: int) -> None:
+    await bot.send_message(
+        chat_id,
+        "У вас пока нет ссылки. Нажмите «💳 Тарифы», чтобы оформить подписку.",
+        reply_markup=kb.main_menu(_is_admin(telegram_id)),
     )
-    await _send_config(bot, chat_id, client)
 
 
 async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int) -> None:
     client = db.get_active_client(telegram_id)
     if not client:
-        await bot.send_message(
-            chat_id,
-            "У вас пока нет ссылки. Нажмите «Получить доступ».",
-            reply_markup=kb.main_menu(_is_admin(telegram_id)),
-        )
+        await _send_no_link_yet(bot, chat_id, telegram_id)
         return
     await _send_config(bot, chat_id, client)
 
@@ -194,7 +169,7 @@ async def _handle_revoke(bot: Bot, chat_id: int, telegram_id: int) -> None:
         log.exception("Failed to remove client %s from Hysteria", client.username)
     await bot.send_message(
         chat_id,
-        "Доступ отключён. Нажмите «Получить доступ», чтобы подключиться снова.",
+        "Доступ отключён. Нажмите «💳 Тарифы», чтобы оформить подписку снова.",
         reply_markup=kb.main_menu(_is_admin(telegram_id)),
     )
 
@@ -310,7 +285,7 @@ async def cmd_subscribe(message: Message) -> None:
 
 @router.message(Command("getconfig"))
 async def cmd_getconfig(message: Message) -> None:
-    await _handle_getconfig(message.bot, message.chat.id, message.from_user.id, message.from_user.username)
+    await message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
 
 
 @router.message(Command("myconfig"))
@@ -667,8 +642,8 @@ async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
 
 @router.callback_query(F.data == "getconfig")
 async def cb_getconfig(callback: CallbackQuery) -> None:
-    await callback.answer("Создаю ссылку…")
-    await _handle_getconfig(callback.bot, callback.message.chat.id, callback.from_user.id, callback.from_user.username)
+    await callback.answer()
+    await callback.message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
 
 
 @router.callback_query(F.data == "myconfig")

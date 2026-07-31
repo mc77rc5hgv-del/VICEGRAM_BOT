@@ -6,7 +6,6 @@ import plans as plans_module
 def main_menu(is_admin: bool) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="💳 Тарифы", callback_data="plans")],
-        [InlineKeyboardButton(text="🔑 Получить доступ", callback_data="getconfig")],
         [
             InlineKeyboardButton(text="📋 Мой конфиг", callback_data="myconfig"),
             InlineKeyboardButton(text="📊 Статус", callback_data="status"),
