@@ -23,6 +23,7 @@ class Settings:
     hysteria_sni: str = os.environ.get("HYSTERIA_SNI", "med-vpn.internal")
 
     service_name: str = os.environ.get("SERVICE_NAME", "MED VPN")
+    server_flag: str = os.environ.get("SERVER_FLAG", "🇳🇱")
 
     referral_commission_rate: float = float(os.environ.get("REFERRAL_COMMISSION_RATE", "0.10"))
     default_currency: str = os.environ.get("DEFAULT_CURRENCY", "RUB")

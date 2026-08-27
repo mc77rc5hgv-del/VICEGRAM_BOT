@@ -113,7 +113,7 @@ async def _send_welcome(bot: Bot, chat_id: int, telegram_id: int) -> None:
 
 
 async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
-    label = f"tg{client.telegram_id}"
+    label = f"{settings.server_flag} {settings.service_name}"
     uri = hysteria.build_hysteria_uri(client.username, client.password, label)
     await bot.send_message(
         chat_id,
