@@ -1,0 +1,10 @@
+[package]
+name = "volna-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Platform-independent connection policy for VOLNA VPN"
+
+[lib]
+path = "src/lib.rs"
