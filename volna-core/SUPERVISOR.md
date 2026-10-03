@@ -20,8 +20,8 @@ publication while dropping sessions. A Linux HysteriaTunActivator connects this
 hook to LinuxPolicyRouter. Cancellation never implicitly calls disconnect.
 
 Switching publishes a new handle before dropping the old session. Requests already
-using the old proxy can fail: no TCP-flow preservation, arbitrary request replay,
-existing-flow migration or mobile network migration is implemented. Linux route
+using the old proxy can fail: no TCP-flow preservation, arbitrary request replay
+or mobile network migration is implemented. Linux route
 activation and fail-closed guards are opt-in and have the limits documented in TUN.md.
 Route config is a snapshot for the supervisor lifetime; changed signed manifests
 must invalidate the epoch and restart the supervisor. A failed active route with no

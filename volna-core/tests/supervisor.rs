@@ -151,3 +151,33 @@ async fn failed_activation_never_publishes_backup_and_closes_sessions() {
     assert_eq!(status_rx.borrow().state,State::Failed);
     assert_eq!(closed.load(Ordering::SeqCst),2);
 }
+
+struct CancelActivation {
+    epoch: watch::Sender<u64>,active: watch::Receiver<Option<ActivePath<String>>>,
+}
+impl PathActivator<Session> for CancelActivation {
+    fn activate<'a>(&'a mut self,_s: &'a Session) -> ActivationFuture<'a> {
+        Box::pin(async move {
+            self.epoch.send(2).unwrap();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            assert!(self.active.borrow().is_none(),"cancelled epoch must never publish Connected");
+            Ok(())
+        })
+    }
+}
+#[tokio::test(start_paused=true)]
+async fn epoch_change_during_activation_finishes_without_publication() {
+    let closed = Arc::new(AtomicUsize::new(0));
+    let c = Arc::new(Fake { checks: AtomicUsize::new(0),closed: closed.clone(),reject_backup: false });
+    let (tx,rx) = watch::channel(1);
+    let (active_tx,active_rx) = watch::channel(None);
+    let (status_tx,status_rx) = watch::channel(SupervisorStatus::default());
+    let mut activation = CancelActivation { epoch: tx,active: active_rx.clone() };
+    let result = supervise_with_activation(c,vec![route("a",1.0)],Mode::Auto,
+        options(),SupervisorChannels { generation: rx,active: active_tx,status: status_tx },
+        1,&mut activation).await;
+    assert_eq!(result,Err(SupervisorError::Cancelled));
+    assert!(active_rx.borrow().is_none());
+    assert_eq!(status_rx.borrow().state,State::Idle);
+    assert_eq!(closed.load(Ordering::SeqCst),1);
+}

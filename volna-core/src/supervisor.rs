@@ -86,7 +86,7 @@ pub trait PathActivator<S>: Send {
     fn activate<'a>(&'a mut self,session: &'a S) -> ActivationFuture<'a>;
 }
 pub struct ApplicationOnly;
-impl<S: Sync> PathActivator<S> for ApplicationOnly {
+impl<S> PathActivator<S> for ApplicationOnly {
     fn activate<'a>(&'a mut self,_session: &'a S) -> ActivationFuture<'a> {
         Box::pin(async { Ok(()) })
     }
@@ -94,7 +94,7 @@ impl<S: Sync> PathActivator<S> for ApplicationOnly {
 type Pending<S> = Pin<Box<dyn Future<Output=Result<Winner<S>,RaceError>>+Send>>;
 pub async fn supervise<C: MonitoredConnector+'static>(connector: Arc<C>,routes: Vec<Route>,
     mode: Mode,options: SupervisorOptions,channels: SupervisorChannels<C::Handle>,epoch: u64)
-    -> Result<(),SupervisorError> where C::Session: 'static+Sync {
+    -> Result<(),SupervisorError> where C::Session: 'static {
     supervise_with_activation(connector,routes,mode,options,channels,epoch,&mut ApplicationOnly).await
 }
 /// Epoch cancellation waits for an in-flight activation to finish. Aborting the
