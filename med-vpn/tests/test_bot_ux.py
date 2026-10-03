@@ -73,10 +73,18 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         api.send_photo.assert_awaited_once()
 
     async def test_navigation_edits_in_place(self):
-        message = SimpleNamespace(photo=[],edit_text=AsyncMock(),answer=AsyncMock())
+        message = SimpleNamespace(text="Menu",photo=[],edit_text=AsyncMock(),answer=AsyncMock())
         await bot._screen(SimpleNamespace(message=message),"Menu",kb.main_menu(False))
         message.edit_text.assert_awaited_once()
         message.answer.assert_not_awaited()
 
 if __name__ == "__main__":
     unittest.main()
+
+class CredentialNavigationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_help_keeps_the_previously_delivered_link(self):
+        message = SimpleNamespace(text="hysteria2://test:fake@127.0.0.1",photo=[],
+                                  edit_text=AsyncMock(),answer=AsyncMock())
+        await bot._screen(SimpleNamespace(message=message),"Help",kb.platforms_menu())
+        message.edit_text.assert_not_awaited()
+        message.answer.assert_awaited_once()

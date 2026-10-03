@@ -112,6 +112,10 @@ async def _send_welcome(bot: Bot, chat_id: int, telegram_id: int) -> None:
 
 async def _screen(callback: CallbackQuery, text: str, markup, parse_mode=None) -> None:
     """Update navigation in place."""
+    # Keep a delivered personal link available while navigating its help buttons.
+    if "hysteria2://" in (callback.message.text or ""):
+        await callback.message.answer(text, parse_mode=parse_mode, reply_markup=markup)
+        return
     try:
         if callback.message.photo:
             if len(text) > 1024:
