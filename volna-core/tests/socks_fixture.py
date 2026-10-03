@@ -43,7 +43,7 @@ class Relay(socketserver.BaseRequestHandler):
             methods = exact(self.request, count)
             if version != 5 or 0 not in methods:
                 return
-            self.request.sendall(b"\\x05\\x00")
+            self.request.sendall(b"\x05\x00")
             version, command, reserved, address_type = exact(self.request, 4)
             if (version, command, reserved, address_type) != (5, 1, 0, 3):
                 return  # require proxy DNS (socks5h), not local DNS
@@ -53,7 +53,7 @@ class Relay(socketserver.BaseRequestHandler):
                 return
             with socket.create_connection(("127.0.0.1", port), timeout=3) as upstream:
                 self.server.connections += 1
-                self.request.sendall(b"\\x05\\x00\\x00\\x01\\x7f\\x00\\x00\\x01\\x00\\x00")
+                self.request.sendall(b"\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x00")
                 peers = [self.request, upstream]
                 while True:
                     ready, _, _ = select.select(peers, [], [], 5)
