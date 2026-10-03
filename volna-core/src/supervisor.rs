@@ -81,7 +81,9 @@ async fn probe<C: MonitoredConnector>(c: &C,session: &mut C::Session,
 }
 /// Platform activation runs before publication and before dropping the old session.
 /// Activation must retain fail-closed guards on errors or future cancellation.
-pub type ActivationFuture<'a> = Pin<Box<dyn Future<Output=Result<(),()>>+Send+'a>>;
+#[derive(Debug,PartialEq,Eq)]
+pub enum ActivationError { Retryable,Fatal }
+pub type ActivationFuture<'a> = Pin<Box<dyn Future<Output=Result<(),ActivationError>>+Send+'a>>;
 pub trait PathActivator<S>: Send {
     fn activate<'a>(&'a mut self,session: &'a S) -> ActivationFuture<'a>;
 }
@@ -188,14 +190,25 @@ async fn run<C: MonitoredConnector+'static,A: PathActivator<C::Session>>(c: Arc<
                         if backup_health.is_err() {
                             reserve = None;
                             next_retry = Instant::now()+backoff;
-                        } else if better && (failures >= o.failed_samples
+                        } else if better && Instant::now() >= next_retry && (failures >= o.failed_samples
                             || (degraded >= o.degraded_samples && Instant::now() >= cooldown)) {
                             // Fresh backup validation precedes publication; old process
                             // is dropped only after swapping the handle for new requests.
                             publish(c.as_ref(),p,&active,State::Migrating,true,switches);
                             if *epoch.borrow() != expected { return Err(SupervisorError::Cancelled); }
-                            activator.activate(&reserve.as_ref().expect("validated").0.session)
-                                .await.map_err(|_| SupervisorError::Activation)?;
+                            let activation = activator.activate(&reserve.as_ref().expect("validated").0.session).await;
+                            if activation == Err(ActivationError::Fatal) {
+                                return Err(SupervisorError::Activation);
+                            }
+                            if activation == Err(ActivationError::Retryable) {
+                                if *epoch.borrow() != expected || epoch.has_changed().is_err() {
+                                    return Err(SupervisorError::Cancelled);
+                                }
+                                next_retry = Instant::now()+backoff;
+                                backoff = backoff.saturating_mul(2).min(Duration::from_secs(30));
+                                publish(c.as_ref(),p,&active,State::Degraded,true,switches);
+                                continue;
+                            }
                             if *epoch.borrow() != expected || epoch.has_changed().is_err() {
                                 return Err(SupervisorError::Cancelled);
                             }

@@ -19,9 +19,13 @@ release and certificate pin are verified.
 
 supervise_with_activation now uses HysteriaTunActivator to install the selected
 session's routes before Connected publication and before dropping the old session.
-Fresh reserve health validation precedes activation. An activation error fails the
-supervisor and closes its sessions while retaining routing guards; it does not
-claim Connected or implicitly restore direct access. Epoch cancellation waits for
+Fresh reserve health validation precedes activation. Activation snapshots the actual selected kernel routes for both families. A command
+failure (including one reported after mutation) triggers rollback and verification
+of both tables. Only verified rollback returns Restored/Retryable. The supervisor
+keeps the old and ready reserve sessions alive, reports Degraded, and retries with
+exponential backoff and fresh health checks. Unknown state or failed rollback is
+fatal: sessions close, guards remain, and Connected is not claimed. Initial
+activation errors still end the connection attempt. Epoch cancellation waits for
 in-flight activation completion, then clears publication and closes sessions.
 The caller retains router ownership and must explicitly disconnect to restore
 ordinary routing. Hard task abortion can still interrupt sequential platform work.
@@ -33,3 +37,13 @@ Never run the fixture example in the host namespace.
 The namespace fixture disables IPv4 reverse-path filtering within its isolated
 namespace, because unmarked QUIC replies otherwise fail the VPN table lookup.
 A production platform must provide a compatible reverse-path/packet-mark policy.
+
+The route controller marks activation dirty before its first mutation. Hard future
+cancellation leaves that flag set; later activation is rejected until the controller
+is replaced/recovered rather than blindly reusing a partially changed scope.
+This is in-memory protection, not durable crash recovery. Dual-stack updates are
+still sequential. External routing mutations remain outside the ownership contract.
+
+CI injects a nonzero command exit AFTER the reserve IPv6 route has been changed,
+asserts that both IPv4 and IPv6 select the original TUN before the next attempt,
+then confirms automatic retry and ordinary HTTPS/UDP on the reserve.

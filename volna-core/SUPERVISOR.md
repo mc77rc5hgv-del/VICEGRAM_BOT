@@ -15,8 +15,11 @@ for new application requests. Drop/epoch cancellation clear publication and drop
 supervise preserves application-only behavior. supervise_with_activation accepts
 an owned platform activation hook. Activation must succeed before Connected is
 published, both initially and on failover; the old session remains alive until
-activation and publication finish. Activation failure returns Activation and clears
-publication while dropping sessions. A Linux HysteriaTunActivator connects this
+activation and publication finish. Fatal activation failure returns Activation and clears publication while dropping
+sessions. Retryable is reserved for a platform-confirmed safe rollback: the old
+session and ready reserve stay alive, state becomes Degraded, and activation retries
+with bounded exponential backoff after fresh probes. Initial activation errors are
+fatal for that connection attempt. A Linux HysteriaTunActivator connects this
 hook to LinuxPolicyRouter. Cancellation never implicitly calls disconnect.
 
 Switching publishes a new handle before dropping the old session. Requests already

@@ -69,6 +69,7 @@ async fn main() {
     tokio::time::timeout(Duration::from_secs(15),async {
         loop { if status_rx.borrow().switches > 0 { break; } status_rx.changed().await.unwrap(); }
     }).await.unwrap();
+    assert!(PathBuf::from(env("VOLNA_ROUTE_FAILURE")).exists());
     assert_eq!(active_rx.borrow().as_ref().unwrap().route_id,"backup");
     assert_eq!(client.get(&url).send().await.unwrap().text().await.unwrap(),"volna-real-quic");
     echo(env("VOLNA_UDP")).await;
@@ -90,7 +91,7 @@ async fn main() {
     assert!(client.get(&url).send().await.is_err());
     router.disconnect().await.unwrap();
     assert_eq!(client.get(&url).send().await.unwrap().text().await.unwrap(),"volna-real-quic");
-    println!("Automatic TUN failover: HTTPS/UDP, kernel reserve route, cancellation guard and disconnect passed");
+    println!("TUN failover with dual-stack rollback and automatic retry: HTTPS/UDP, kernel reserve route, cancellation guard and disconnect passed");
 }
 #[cfg(not(target_os="linux"))]
 fn main() {}

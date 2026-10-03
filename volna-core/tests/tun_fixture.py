@@ -1,4 +1,4 @@
-"""Real Hysteria2/QUIC + TLS origin. Everything stays on loopback."""
+"""Real QUIC/TUN failover with an injected dual-stack route failure in a namespace."""
 import hashlib
 import http.server
 import json
@@ -78,6 +78,19 @@ try:
             raise RuntimeError("Hysteria release checksum mismatch")
         binary.write_bytes(payload)
         binary.chmod(0o700)
+        route_failure = tmp / "route-failed-once"
+        ip_wrapper = tmp / "ip-wrapper"
+        ip_wrapper.write_text("#!/usr/bin/python3\nimport os,subprocess,sys\n"
+            + "args=sys.argv[1:]\nflag=" + repr(str(route_failure)) + "\n"
+            + "if '-4' in args and 'replace' in args and 'volna1' in args and os.path.exists(flag):\n"
+            + "    import json\n    for family in ['-4','-6']:\n"
+            + "        routes=json.loads(subprocess.check_output([" + repr(ip) + ",family,'-j','route','show','table','20000']))\n"
+            + "        assert any(r.get('dev') == 'volna0' and r.get('metric') == 10 for r in routes), 'rollback must restore both families before retry'\n"
+            + "result=subprocess.run([" + repr(ip) + "]+args)\n"
+            + "if result.returncode == 0 and '-6' in args and 'replace' in args and 'volna1' in args and not os.path.exists(flag):\n"
+            + "    open(flag,'w').write('injected after IPv6 mutation')\n    sys.exit(1)\n"
+            + "sys.exit(result.returncode)\n")
+        ip_wrapper.chmod(0o700)
         client_log = tmp / "client-errors.log"
         wrapper = tmp / "client-wrapper"
         wrapper.write_text("#!/usr/bin/python3\nimport os,sys\n"
@@ -134,8 +147,8 @@ try:
         threading.Thread(target=monitor,daemon=True).start()
         with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as dead:
             dead.bind(("192.0.2.1",0))
-            env = dict(os.environ,VOLNA_IP=ip,VOLNA_UDP="192.0.2.1:" + str(udp.getsockname()[1]),TMPDIR=str(tmp),VOLNA_HYSTERIA_BIN=str(wrapper),
-                VOLNA_HYSTERIA_SERVER=endpoint,VOLNA_HYSTERIA_PIN=pin,
+            env = dict(os.environ,VOLNA_IP=str(ip_wrapper),VOLNA_UDP="192.0.2.1:" + str(udp.getsockname()[1]),TMPDIR=str(tmp),VOLNA_HYSTERIA_BIN=str(wrapper),
+                VOLNA_ROUTE_FAILURE=str(route_failure),VOLNA_HYSTERIA_SERVER=endpoint,VOLNA_HYSTERIA_PIN=pin,
                 VOLNA_HYSTERIA_BACKUP_SERVER=backup_endpoint,VOLNA_STOP_PRIMARY=str(stop_flag),
                 VOLNA_HYSTERIA_DEAD_SERVER="192.0.2.1:" + str(dead.getsockname()[1]),
                 VOLNA_TEST_CA=str(ca),
@@ -147,6 +160,8 @@ try:
                 subprocess.run([ip,"netns","exec",namespace,
                     str(pathlib.Path("volna-core/target/debug/examples/linux_tun_probe").resolve())],
                     env=env,check=True,timeout=90)
+                if not route_failure.exists():
+                    raise RuntimeError("route failure injection was not exercised")
                 if backup.poll() is not None:
                     raise RuntimeError("Hysteria backup server exited")
             finally:

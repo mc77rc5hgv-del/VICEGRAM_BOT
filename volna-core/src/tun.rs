@@ -7,7 +7,7 @@ pub const TRANSPORT_MARK: u32 = 0x564f;
 #[derive(Clone)]
 pub struct TunProfile { interface: String,slot: u8 }
 #[derive(Debug,PartialEq,Eq)]
-pub enum TunError { Invalid,Privilege,Conflict,Command,Rollback }
+pub enum TunError { Invalid,Privilege,Conflict,Command,Rollback,Restored }
 impl TunProfile {
     pub fn new(interface: String,slot: u8) -> Result<Self,TunError> {
         if !interface.starts_with("volna") || interface.len() > 15 || slot == 0 || slot > 64
@@ -30,7 +30,7 @@ pub fn interface_exists(name: &str) -> bool {
     unsafe { libc::if_nametoindex(name.as_ptr()) != 0 }
 }
 pub struct LinuxPolicyRouter {
-    ip: PathBuf,table: String,priority: u32,active: Option<String>,installed: bool,
+    ip: PathBuf,table: String,priority: u32,active: Option<String>,installed: bool,dirty: bool,
 }
 impl LinuxPolicyRouter {
     async fn command(&self,args: Vec<String>) -> Result<Vec<u8>,TunError> {
@@ -58,7 +58,7 @@ impl LinuxPolicyRouter {
             || !(10000..=30000).contains(&priority) { return Err(TunError::Invalid); }
         // SAFETY: geteuid has no pointer arguments or side effects.
         if unsafe { libc::geteuid() } != 0 { return Err(TunError::Privilege); }
-        let router = Self { ip,table: table.to_string(),priority,active: None,installed: true };
+        let router = Self { ip,table: table.to_string(),priority,active: None,installed: true,dirty: false };
         for family in ["-4","-6"] {
             let rules = router.command(vec![family.into(),"-j".into(),"rule".into(),"show".into()]).await?;
             let rules: Vec<Value> = serde_json::from_slice(&rules).map_err(|_| TunError::Command)?;
@@ -97,17 +97,50 @@ impl LinuxPolicyRouter {
         }
         Ok(router)
     }
-    pub async fn activate(&mut self,profile: &TunProfile) -> Result<(),TunError> {
-        if !self.installed || !interface_exists(profile.interface()) { return Err(TunError::Invalid); }
-        self.command(self.route_args("-4","replace",Some(profile.interface()))).await?;
-        if self.command(self.route_args("-6","replace",Some(profile.interface()))).await.is_err() {
-            let undo = if let Some(old) = &self.active {
-                self.route_args("-4","replace",Some(old))
-            } else { vec!["-4".into(),"route".into(),"del".into(),"table".into(),
-                self.table.clone(),"default".into(),"metric".into(),"10".into()] };
-            self.command(undo).await.map_err(|_| TunError::Rollback)?;
-            return Err(TunError::Command);
+    async fn selected(&self,family: &str) -> Result<Option<String>,TunError> {
+        let output = self.command(vec![family.into(),"-j".into(),"route".into(),
+            "show".into(),"table".into(),self.table.clone()]).await?;
+        let routes: Vec<Value> = serde_json::from_slice(&output).map_err(|_| TunError::Command)?;
+        let devices: Vec<&str> = routes.iter().filter(|r| r["metric"].as_u64() == Some(10))
+            .map(|r| r["dev"].as_str().ok_or(TunError::Conflict)).collect::<Result<_,_>>()?;
+        if devices.len() > 1 { return Err(TunError::Conflict); }
+        Ok(devices.first().map(|s| s.to_string()))
+    }
+    async fn restore(&self,family: &str,device: Option<&str>) -> Result<(),TunError> {
+        if let Some(device) = device {
+            self.command(self.route_args(family,"replace",Some(device))).await?;
+        } else if self.selected(family).await?.is_some() {
+            self.command(vec![family.into(),"route".into(),"del".into(),"table".into(),
+                self.table.clone(),"default".into(),"metric".into(),"10".into()]).await?;
         }
+        if self.selected(family).await?.as_deref() != device { return Err(TunError::Rollback); }
+        Ok(())
+    }
+    pub async fn activate(&mut self,profile: &TunProfile) -> Result<(),TunError> {
+        if self.dirty { return Err(TunError::Rollback); }
+        if !self.installed || !interface_exists(profile.interface()) { return Err(TunError::Invalid); }
+        // Snapshot kernel state, including disappearance of a previously active device.
+        let previous = [self.selected("-4").await?,self.selected("-6").await?];
+        // Remains set if this future is aborted, preventing blind reuse.
+        self.dirty = true;
+        let mut failed = false;
+        for family in ["-4","-6"] {
+            if self.command(self.route_args(family,"replace",Some(profile.interface()))).await.is_err() {
+                failed = true; break;
+            }
+        }
+        if failed {
+            // A failed/timed-out command may already have changed the kernel.
+            // Restore BOTH families and verify them before permitting retry.
+            let mut restored = true;
+            for (family,old) in ["-4","-6"].into_iter().zip(previous.iter()) {
+                if self.restore(family,old.as_deref()).await.is_err() { restored = false; }
+            }
+            if !restored { return Err(TunError::Rollback); }
+            self.dirty = false;
+            return Err(TunError::Restored);
+        }
+        self.dirty = false;
         self.active = Some(profile.interface().to_string());
         Ok(())
     }
@@ -135,11 +168,13 @@ impl crate::supervisor::PathActivator<crate::hysteria::HysteriaSession> for Hyst
     fn activate<'a>(&'a mut self,session: &'a crate::hysteria::HysteriaSession)
         -> crate::supervisor::ActivationFuture<'a> {
         Box::pin(async move {
-            let interface = session.tun_interface().ok_or(())?;
+            use crate::supervisor::ActivationError;
+            let interface = session.tun_interface().ok_or(ActivationError::Fatal)?;
             // Address slot does not affect activation; interface comes from the
             // validated connector profile rather than remote input.
-            let profile = TunProfile::new(interface.to_string(),1).map_err(|_| ())?;
-            self.router.activate(&profile).await.map_err(|_| ())
+            let profile = TunProfile::new(interface.to_string(),1).map_err(|_| ActivationError::Fatal)?;
+            self.router.activate(&profile).await.map_err(|error|
+                if error == TunError::Restored { ActivationError::Retryable } else { ActivationError::Fatal })
         })
     }
 }
