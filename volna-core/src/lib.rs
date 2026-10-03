@@ -182,3 +182,6 @@ impl HealthMonitor {
 pub mod runtime;
 
 pub mod socks;
+
+#[cfg(unix)]
+pub mod hysteria;

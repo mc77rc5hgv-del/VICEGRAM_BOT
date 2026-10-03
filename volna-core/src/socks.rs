@@ -26,6 +26,11 @@ impl SocksConnector {
     /// its trusted CA; certificate verification is always enabled.
     pub fn new(routes: Vec<ProxyRoute>, health_url: &str,
         extra_ca: Option<reqwest::Certificate>) -> Result<Self, ConfigError> {
+        Self::with_auth(routes, health_url, extra_ca, None)
+    }
+    pub(crate) fn with_auth(routes: Vec<ProxyRoute>, health_url: &str,
+        extra_ca: Option<reqwest::Certificate>, auth: Option<(&str, &str)>)
+        -> Result<Self, ConfigError> {
         let health_url = Url::parse(health_url).map_err(|_| ConfigError::InvalidHealthUrl)?;
         if health_url.scheme() != "https" || health_url.host_str().is_none()
             || !health_url.username().is_empty() || health_url.password().is_some()
@@ -39,8 +44,11 @@ impl SocksConnector {
                 return Err(ConfigError::InvalidProxy);
             }
             if clients.contains_key(&route.route_id) { return Err(ConfigError::DuplicateRoute); }
-            let proxy = Proxy::all(format!("socks5h://{}", route.socks_address))
+            let mut proxy = Proxy::all(format!("socks5h://{}", route.socks_address))
                 .map_err(|_| ConfigError::InvalidProxy)?;
+            if let Some((user, password)) = auth {
+                proxy = proxy.basic_auth(user,password);
+            }
             let mut builder = Client::builder().no_proxy().proxy(proxy)
                 .redirect(Policy::none()).timeout(Duration::from_secs(5))
                 .connect_timeout(Duration::from_secs(2))
