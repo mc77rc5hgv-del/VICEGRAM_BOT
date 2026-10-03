@@ -74,6 +74,12 @@ try:
             raise RuntimeError("Hysteria release checksum mismatch")
         binary.write_bytes(payload)
         binary.chmod(0o700)
+        client_log = tmp / "client-errors.log"
+        wrapper = tmp / "client-wrapper"
+        wrapper.write_text("#!/usr/bin/python3\nimport os,sys\n"
+            + "fd=os.open(" + repr(str(client_log)) + ",os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)\n"
+            + "os.dup2(fd,2)\nos.execv(" + repr(str(binary)) + ",[" + repr(str(binary)) + "]+sys.argv[1:])\n")
+        wrapper.chmod(0o700)
         ca, ca_key = tmp / "ca.pem", tmp / "ca.key"
         cert, key, csr = tmp / "cert.pem", tmp / "key.pem", tmp / "leaf.csr"
         openssl("req","-x509","-newkey","rsa:2048","-nodes","-keyout",ca_key,
@@ -124,7 +130,7 @@ try:
         threading.Thread(target=monitor,daemon=True).start()
         with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as dead:
             dead.bind(("192.0.2.1",0))
-            env = dict(os.environ,VOLNA_IP=ip,VOLNA_UDP="192.0.2.1:" + str(udp.getsockname()[1]),TMPDIR=str(tmp),VOLNA_HYSTERIA_BIN=str(binary),
+            env = dict(os.environ,VOLNA_IP=ip,VOLNA_UDP="192.0.2.1:" + str(udp.getsockname()[1]),TMPDIR=str(tmp),VOLNA_HYSTERIA_BIN=str(wrapper),
                 VOLNA_HYSTERIA_SERVER=endpoint,VOLNA_HYSTERIA_PIN=pin,
                 VOLNA_HYSTERIA_BACKUP_SERVER=backup_endpoint,VOLNA_STOP_PRIMARY=str(stop_flag),
                 VOLNA_HYSTERIA_DEAD_SERVER="192.0.2.1:" + str(dead.getsockname()[1]),
@@ -137,6 +143,8 @@ try:
                 if backup.poll() is not None:
                     raise RuntimeError("Hysteria backup server exited")
             finally:
+                if client_log.exists():
+                    print(client_log.read_text(),flush=True)
                 stop_monitor.set()
                 backup.terminate()
                 try:
