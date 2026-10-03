@@ -1,6 +1,6 @@
 //! Unix process adapter for Hysteria2 v2.12.3. HTTP via QUIC, not IP/TUN.
 use std::{collections::HashMap, io::Write, net::{Ipv4Addr, TcpListener},
-    os::unix::fs::OpenOptionsExt, path::PathBuf, process::Stdio, time::Duration};
+    os::unix::fs::{OpenOptionsExt,PermissionsExt}, path::PathBuf, process::Stdio, time::Duration};
 use rand::{rngs::OsRng, RngCore};
 use serde_json::json;
 use tempfile::TempDir;
@@ -92,6 +92,8 @@ impl Connector for HysteriaConnector {
             let proxy_user = secret();
             let proxy_password = secret();
             let directory = tempfile::Builder::new().prefix("volna-hy-").tempdir()
+                .map_err(|_| ConnectError::Unavailable)?;
+            std::fs::set_permissions(directory.path(),std::fs::Permissions::from_mode(0o700))
                 .map_err(|_| ConnectError::Unavailable)?;
             let config_path = directory.path().join("client.json");
             let config = json!({

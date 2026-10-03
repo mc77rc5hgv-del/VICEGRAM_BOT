@@ -2,6 +2,11 @@
 use std::{path::PathBuf,time::Duration,os::unix::fs::PermissionsExt};
 use ed25519_dalek::{Signer,SigningKey};
 use volna_core::{config::*,storage::*};
+fn private_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(),std::fs::Permissions::from_mode(0o700)).unwrap();
+    dir
+}
 fn verifier() -> Verifier {
     Verifier::new(SigningKey::from_bytes(&[11u8;32]).verifying_key().to_bytes()).unwrap()
 }
@@ -25,7 +30,7 @@ fn open(path: PathBuf,now: u64) -> Result<PersistentConfigStore,StorageError> {
 }
 #[test]
 fn restart_preserves_signed_routes_floor_clock_and_private_permissions() {
-    let dir = tempfile::tempdir().unwrap(); let path = dir.path().join("manifest.json");
+    let dir = private_dir(); let path = dir.path().join("manifest.json");
     let mut store = create(path.clone());
     store.accept(envelope(5),120).unwrap();
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,0o600);
@@ -39,7 +44,7 @@ fn restart_preserves_signed_routes_floor_clock_and_private_permissions() {
 }
 #[test]
 fn expiry_progress_survives_restart_and_no_older_routes_return() {
-    let dir = tempfile::tempdir().unwrap(); let path = dir.path().join("manifest.json");
+    let dir = private_dir(); let path = dir.path().join("manifest.json");
     let mut s = create(path.clone()); s.accept(envelope(3),120).unwrap();
     assert!(matches!(s.cache(250),Err(StorageError::Config(ConfigError::Expired))));
     drop(s);
@@ -50,7 +55,7 @@ fn expiry_progress_survives_restart_and_no_older_routes_return() {
 }
 #[test]
 fn one_writer_and_explicit_initialization() {
-    let dir = tempfile::tempdir().unwrap(); let path = dir.path().join("manifest.json");
+    let dir = private_dir(); let path = dir.path().join("manifest.json");
     assert!(matches!(open(path.clone(),100),Err(StorageError::Missing)));
     let first = create(path.clone());
     assert!(matches!(open(path.clone(),100),Err(StorageError::Locked)));
@@ -60,7 +65,7 @@ fn one_writer_and_explicit_initialization() {
 }
 #[test]
 fn corrupt_missing_or_replaced_cache_never_resets_accepted_version() {
-    let dir = tempfile::tempdir().unwrap(); let path = dir.path().join("manifest.json");
+    let dir = private_dir(); let path = dir.path().join("manifest.json");
     let mut s = create(path.clone()); s.accept(envelope(6),120).unwrap(); drop(s);
     let original = std::fs::read(&path).unwrap();
     let mut json: serde_json::Value = serde_json::from_slice(&original).unwrap();
@@ -74,7 +79,7 @@ fn corrupt_missing_or_replaced_cache_never_resets_accepted_version() {
 }
 #[test]
 fn failed_commit_does_not_activate_candidate_or_allow_stale_fallback() {
-    let dir = tempfile::tempdir().unwrap(); let path = dir.path().join("manifest.json");
+    let dir = private_dir(); let path = dir.path().join("manifest.json");
     let mut s = create(path.clone()); s.accept(envelope(1),120).unwrap();
     let before = std::fs::read(&path).unwrap();
     std::fs::set_permissions(dir.path(),std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -88,7 +93,7 @@ fn failed_commit_does_not_activate_candidate_or_allow_stale_fallback() {
 }
 #[test]
 fn rejects_symlinks_hardlinks_and_world_readable_cache() {
-    let dir = tempfile::tempdir().unwrap(); let path = dir.path().join("manifest.json");
+    let dir = private_dir(); let path = dir.path().join("manifest.json");
     let s = create(path.clone()); drop(s);
     std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(matches!(open(path.clone(),100),Err(StorageError::Permissions)));
