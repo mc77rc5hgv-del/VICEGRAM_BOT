@@ -1,0 +1,19 @@
+name: Med VPN bot
+on:
+  push:
+    paths: ['med-vpn/**', '.github/workflows/med-vpn-bot.yml']
+  pull_request:
+    paths: ['med-vpn/**', '.github/workflows/med-vpn-bot.yml']
+permissions:
+  contents: read
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r med-vpn/bot/requirements.txt
+      - run: python -m compileall -q med-vpn/bot
+      - run: python -m unittest discover -s med-vpn/tests -v

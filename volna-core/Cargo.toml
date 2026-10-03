@@ -1,0 +1,30 @@
+[package]
+name = "volna-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Platform-independent connection policy for VOLNA VPN"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+futures-util = "0.3"
+tokio = { version = "1", features = ["time", "sync", "macros", "rt", "process"] }
+
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "socks"] }
+
+serde_json = "1"
+tempfile = "3"
+rand = "0.8"
+
+serde = { version = "1", features = ["derive"] }
+ed25519-dalek = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+fs2 = "0.4"
+libc = "0.2"
