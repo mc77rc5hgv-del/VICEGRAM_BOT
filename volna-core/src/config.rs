@@ -131,6 +131,7 @@ fn validate(m: &Manifest) -> Result<(),ConfigError> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source { Remote, Cached, OfflineGrace }
 pub struct LoadedConfig { pub config: VerifiedManifest, pub source: Source }
+#[derive(Clone)]
 pub struct ConfigStore {
     verifier: Verifier,
     floor: u64,
@@ -250,6 +251,28 @@ impl ConfigClient {
                     Ok(config) => return Ok(config),
                     Err(ConfigError::ClockRollback) => return Err(ConfigError::ClockRollback),
                     Err(_) => {}
+                }
+            }
+        }
+        store.cache(clock())
+    }
+}
+
+#[cfg(unix)]
+impl ConfigClient {
+    /// Durable writes must run on a worker runtime, not the UI thread.
+    /// Storage errors never trigger fallback to stale in-memory state.
+    pub async fn refresh_persistent(&self,store: &mut crate::storage::PersistentConfigStore,
+        clock: impl Fn() -> u64) -> Result<LoadedConfig,crate::storage::StorageError> {
+        use crate::storage::StorageError;
+        for endpoint in &self.endpoints {
+            if let Ok(envelope) = self.envelope(endpoint).await {
+                match store.accept(envelope,clock()) {
+                    Ok(loaded) => return Ok(loaded),
+                    Err(StorageError::Config(ConfigError::ClockRollback)) =>
+                        return Err(StorageError::Config(ConfigError::ClockRollback)),
+                    Err(StorageError::Config(_)) => {}
+                    Err(error) => return Err(error),
                 }
             }
         }

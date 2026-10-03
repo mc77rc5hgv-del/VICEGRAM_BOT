@@ -24,3 +24,7 @@ ed25519-dalek = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+fs2 = "0.4"
+libc = "0.2"
