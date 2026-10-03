@@ -12,11 +12,20 @@ other privileged controllers and concurrent routing changes are outside this
 prototype's ownership model. Dual-stack route updates are sequential.
 
 The isolated namespace fixture checks ordinary HTTPS and UDP through TUN,
-direct-traffic blocking before activation, blocking after shutdown and restoration
+automatic failover after primary QUIC server loss, actual reserve kernel routes,
+direct-traffic blocking before activation, blocking after cancellation and restoration
 after explicit disconnect. It never changes the host default route. The binary
 release and certificate pin are verified.
 
-System-route activation is not yet wired to the HTTP supervisor. Android VpnService,
+supervise_with_activation now uses HysteriaTunActivator to install the selected
+session's routes before Connected publication and before dropping the old session.
+Fresh reserve health validation precedes activation. An activation error fails the
+supervisor and closes its sessions while retaining routing guards; it does not
+claim Connected or implicitly restore direct access. Epoch cancellation waits for
+in-flight activation completion, then clears publication and closes sessions.
+The caller retains router ownership and must explicitly disconnect to restore
+ordinary routing. Hard task abortion can still interrupt sequential platform work.
+Android VpnService,
 DNS ownership, existing-flow migration, production service recovery and cleanup of
 partially applied policy after cancellation remain follow-up work.
 Never run the fixture example in the host namespace.

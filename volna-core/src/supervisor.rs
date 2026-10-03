@@ -46,7 +46,7 @@ pub struct SupervisorChannels<H: Clone> {
     pub status: watch::Sender<SupervisorStatus>,
 }
 #[derive(Debug,PartialEq,Eq)]
-pub enum SupervisorError { Options,Cancelled,Connect(RaceError),Unavailable }
+pub enum SupervisorError { Options,Cancelled,Connect(RaceError),Unavailable,Activation }
 struct Publication<H: Clone> {
     active: watch::Sender<Option<ActivePath<H>>>,
     status: watch::Sender<SupervisorStatus>,final_state: State,
@@ -79,19 +79,40 @@ async fn probe<C: MonitoredConnector>(c: &C,session: &mut C::Session,
         result = timeout(limit,c.health(session)) => Ok(result.unwrap_or(Err(()))),
     }
 }
+/// Platform activation runs before publication and before dropping the old session.
+/// Activation must retain fail-closed guards on errors or future cancellation.
+pub type ActivationFuture<'a> = Pin<Box<dyn Future<Output=Result<(),()>>+Send+'a>>;
+pub trait PathActivator<S>: Send {
+    fn activate<'a>(&'a mut self,session: &'a S) -> ActivationFuture<'a>;
+}
+pub struct ApplicationOnly;
+impl<S: Sync> PathActivator<S> for ApplicationOnly {
+    fn activate<'a>(&'a mut self,_session: &'a S) -> ActivationFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
+}
 type Pending<S> = Pin<Box<dyn Future<Output=Result<Winner<S>,RaceError>>+Send>>;
 pub async fn supervise<C: MonitoredConnector+'static>(connector: Arc<C>,routes: Vec<Route>,
     mode: Mode,options: SupervisorOptions,channels: SupervisorChannels<C::Handle>,epoch: u64)
+    -> Result<(),SupervisorError> where C::Session: 'static+Sync {
+    supervise_with_activation(connector,routes,mode,options,channels,epoch,&mut ApplicationOnly).await
+}
+/// Epoch cancellation waits for an in-flight activation to finish. Aborting the
+/// task may interrupt platform work; guards must survive that case.
+pub async fn supervise_with_activation<C: MonitoredConnector+'static,A: PathActivator<C::Session>>(
+    connector: Arc<C>,routes: Vec<Route>,mode: Mode,options: SupervisorOptions,
+    channels: SupervisorChannels<C::Handle>,epoch: u64,activator: &mut A)
     -> Result<(),SupervisorError> where C::Session: 'static {
     let mut publication = Publication { active: channels.active,status: channels.status,
         final_state: State::Idle };
-    let result = run(connector,routes,mode,options,channels.generation,epoch,&publication).await;
+    let result = run(connector,routes,mode,options,channels.generation,epoch,&publication,activator).await;
     if !matches!(result,Err(SupervisorError::Cancelled)) { publication.final_state = State::Failed; }
     result
 }
-async fn run<C: MonitoredConnector+'static>(c: Arc<C>,routes: Vec<Route>,mode: Mode,
+#[allow(clippy::too_many_arguments)]
+async fn run<C: MonitoredConnector+'static,A: PathActivator<C::Session>>(c: Arc<C>,routes: Vec<Route>,mode: Mode,
     o: SupervisorOptions,mut epoch: watch::Receiver<u64>,expected: u64,
-    p: &Publication<C::Handle>) -> Result<(),SupervisorError> where C::Session: 'static {
+    p: &Publication<C::Handle>,activator: &mut A) -> Result<(),SupervisorError> where C::Session: 'static {
     if o.interval.is_zero() || o.probe_timeout.is_zero() || o.reserve_ttl.is_zero()
         || o.retry_delay.is_zero() || o.failed_samples == 0 || o.degraded_samples == 0 {
         return Err(SupervisorError::Options);
@@ -101,6 +122,13 @@ async fn run<C: MonitoredConnector+'static>(c: Arc<C>,routes: Vec<Route>,mode: M
         Duration::from_millis(100),o.race.max_attempts),o.race,epoch.clone(),expected)
         .await.map_err(|e| if e == RaceError::Cancelled { SupervisorError::Cancelled }
             else { SupervisorError::Connect(e) })?;
+    if *epoch.borrow() != expected || epoch.has_changed().is_err() {
+        return Err(SupervisorError::Cancelled);
+    }
+    activator.activate(&active.session).await.map_err(|_| SupervisorError::Activation)?;
+    if *epoch.borrow() != expected || epoch.has_changed().is_err() {
+        return Err(SupervisorError::Cancelled);
+    }
     publish(c.as_ref(),p,&active,State::Connected,false,0);
     let mut pending: Option<Pending<C::Session>> = None;
     let mut reserve: Option<(Winner<C::Session>,Instant)> = None;
@@ -166,6 +194,11 @@ async fn run<C: MonitoredConnector+'static>(c: Arc<C>,routes: Vec<Route>,mode: M
                             // is dropped only after swapping the handle for new requests.
                             publish(c.as_ref(),p,&active,State::Migrating,true,switches);
                             if *epoch.borrow() != expected { return Err(SupervisorError::Cancelled); }
+                            activator.activate(&reserve.as_ref().expect("validated").0.session)
+                                .await.map_err(|_| SupervisorError::Activation)?;
+                            if *epoch.borrow() != expected || epoch.has_changed().is_err() {
+                                return Err(SupervisorError::Cancelled);
+                            }
                             let old = std::mem::replace(&mut active,
                                 reserve.take().expect("validated").0);
                             failures = 0; degraded = 0;

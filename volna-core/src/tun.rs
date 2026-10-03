@@ -141,3 +141,19 @@ mod tests {
         assert!(p.config().get("route").is_none());
     }
 }
+
+/// Activates only the TUN interface owned by the selected authenticated session.
+/// Router ownership remains with the caller; cancellation never disconnects it.
+pub struct HysteriaTunActivator<'a> { pub router: &'a mut LinuxPolicyRouter }
+impl crate::supervisor::PathActivator<crate::hysteria::HysteriaSession> for HysteriaTunActivator<'_> {
+    fn activate<'a>(&'a mut self,session: &'a crate::hysteria::HysteriaSession)
+        -> crate::supervisor::ActivationFuture<'a> {
+        Box::pin(async move {
+            let interface = session.tun_interface().ok_or(())?;
+            // Address slot does not affect activation; interface comes from the
+            // validated connector profile rather than remote input.
+            let profile = TunProfile::new(interface.to_string(),1).map_err(|_| ())?;
+            self.router.activate(&profile).await.map_err(|_| ())
+        })
+    }
+}

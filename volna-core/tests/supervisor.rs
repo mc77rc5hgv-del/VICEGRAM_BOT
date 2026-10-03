@@ -94,3 +94,60 @@ async fn dropping_supervisor_unpublishes_active_path() {
     assert!(active_rx.borrow().is_none());
     assert!(closed.load(Ordering::SeqCst) >= 1);
 }
+
+struct ActivationCheck {
+    active: watch::Receiver<Option<ActivePath<String>>>,
+    closed: Arc<AtomicUsize>,calls: Arc<AtomicUsize>,reject_backup: bool,
+}
+impl PathActivator<Session> for ActivationCheck {
+    fn activate<'a>(&'a mut self,s: &'a Session) -> ActivationFuture<'a> {
+        Box::pin(async move {
+            assert_eq!(self.closed.load(Ordering::SeqCst),0,"old session must remain alive during activation");
+            if s.id == "a" { assert!(self.active.borrow().is_none()); }
+            else { assert_eq!(self.active.borrow().as_ref().unwrap().route_id,"a"); }
+            self.calls.fetch_add(1,Ordering::SeqCst);
+            if s.id == "b" && self.reject_backup { Err(()) } else { Ok(()) }
+        })
+    }
+}
+#[tokio::test(start_paused=true)]
+async fn activation_precedes_publication_and_old_session_drop() {
+    let closed = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = Arc::new(Fake { checks: AtomicUsize::new(0),closed: closed.clone(),reject_backup: false });
+    let (tx,rx) = watch::channel(1);
+    let (active_tx,active_rx) = watch::channel(None);
+    let (status_tx,mut status_rx) = watch::channel(SupervisorStatus::default());
+    let mut activation = ActivationCheck { active: active_rx.clone(),closed: closed.clone(),
+        calls: calls.clone(),reject_backup: false };
+    let task = tokio::spawn(async move {
+        supervise_with_activation(c,vec![route("a",1.0),route("b",500.0)],Mode::Auto,
+            options(),SupervisorChannels { generation: rx,active: active_tx,status: status_tx },
+            1,&mut activation).await
+    });
+    timeout_switch(&mut status_rx).await;
+    assert_eq!(calls.load(Ordering::SeqCst),2);
+    assert_eq!(active_rx.borrow().as_ref().unwrap().route_id,"b");
+    tx.send(2).unwrap();
+    assert_eq!(task.await.unwrap(),Err(SupervisorError::Cancelled));
+    assert_eq!(closed.load(Ordering::SeqCst),2);
+}
+#[tokio::test(start_paused=true)]
+async fn failed_activation_never_publishes_backup_and_closes_sessions() {
+    let closed = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = Arc::new(Fake { checks: AtomicUsize::new(0),closed: closed.clone(),reject_backup: false });
+    let (_tx,rx) = watch::channel(1);
+    let (active_tx,active_rx) = watch::channel(None);
+    let (status_tx,status_rx) = watch::channel(SupervisorStatus::default());
+    let mut activation = ActivationCheck { active: active_rx.clone(),closed: closed.clone(),
+        calls: calls.clone(),reject_backup: true };
+    let result = supervise_with_activation(c,vec![route("a",1.0),route("b",500.0)],
+        Mode::Auto,options(),SupervisorChannels { generation: rx,active: active_tx,status: status_tx },
+        1,&mut activation).await;
+    assert_eq!(result,Err(SupervisorError::Activation));
+    assert_eq!(calls.load(Ordering::SeqCst),2);
+    assert!(active_rx.borrow().is_none());
+    assert_eq!(status_rx.borrow().state,State::Failed);
+    assert_eq!(closed.load(Ordering::SeqCst),2);
+}
