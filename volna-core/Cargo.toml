@@ -13,5 +13,7 @@ path = "src/lib.rs"
 futures-util = "0.3"
 tokio = { version = "1", features = ["time", "sync", "macros", "rt"] }
 
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "socks"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
