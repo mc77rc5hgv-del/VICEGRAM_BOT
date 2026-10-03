@@ -143,3 +143,19 @@ impl Connector for HysteriaConnector {
         })
     }
 }
+
+impl crate::supervisor::MonitoredConnector for HysteriaConnector {
+    type Handle = reqwest::Client;
+    fn handle(&self,session: &HysteriaSession) -> Self::Handle { session.client().clone() }
+    fn health<'a>(&'a self,session: &'a mut HysteriaSession)
+        -> crate::supervisor::HealthFuture<'a> {
+        Box::pin(async move {
+            if session.child.try_wait().map_err(|_| ())?.is_some() { return Err(()); }
+            let started = tokio::time::Instant::now();
+            let response = session.client().get(&self.health_url).send().await.map_err(|_| ())?;
+            if response.status() != reqwest::StatusCode::NO_CONTENT
+                || session.child.try_wait().map_err(|_| ())?.is_some() { return Err(()); }
+            Ok(crate::supervisor::HealthSample { rtt: started.elapsed() })
+        })
+    }
+}

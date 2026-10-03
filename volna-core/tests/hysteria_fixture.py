@@ -73,19 +73,46 @@ with tempfile.TemporaryDirectory(prefix="volna-quic-") as tmp:
     server = subprocess.Popen([str(binary),"server","--config",str(config),
         "--disable-update-check","--log-level","error"],
         stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as reservation:
+        reservation.bind(("127.0.0.1",0))
+        backup_endpoint = "127.0.0.1:" + str(reservation.getsockname()[1])
+    backup_config = tmp / "backup.json"
+    backup_config.write_text(json.dumps({"listen":backup_endpoint,
+        "tls":{"cert":str(cert),"key":str(key)},
+        "auth":{"type":"userpass","userpass":{"volna":"fixture-password"}}}))
+    backup_config.chmod(0o600)
+    backup = subprocess.Popen([str(binary),"server","--config",str(backup_config),
+        "--disable-update-check","--log-level","error"],
+        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    stop_flag = tmp / "stop-primary"
+    stop_monitor = threading.Event()
+    def monitor():
+        while not stop_monitor.wait(0.02):
+            if stop_flag.exists():
+                server.terminate()
+                return
+    threading.Thread(target=monitor,daemon=True).start()
     with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as dead:
         dead.bind(("127.0.0.1",0))
         env = dict(os.environ,TMPDIR=str(tmp),VOLNA_HYSTERIA_BIN=str(binary),
             VOLNA_HYSTERIA_SERVER=endpoint,VOLNA_HYSTERIA_PIN=pin,
+            VOLNA_HYSTERIA_BACKUP_SERVER=backup_endpoint,VOLNA_STOP_PRIMARY=str(stop_flag),
             VOLNA_HYSTERIA_DEAD_SERVER="127.0.0.1:" + str(dead.getsockname()[1]),
             VOLNA_TEST_CA=str(ca),
             VOLNA_TEST_HEALTH="https://localhost:" + str(origin.server_port) + "/health")
         try:
             subprocess.run(["cargo","test","--manifest-path","volna-core/Cargo.toml",
-                "--test","hysteria","--","--ignored"],env=env,check=True,timeout=180)
-            if server.poll() is not None:
-                raise RuntimeError("Hysteria server exited")
+                "--test","hysteria","--","--ignored","--test-threads=1"],env=env,check=True,timeout=180)
+            if backup.poll() is not None:
+                raise RuntimeError("Hysteria backup server exited")
         finally:
+            stop_monitor.set()
+            backup.terminate()
+            try:
+                backup.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                backup.kill()
+                backup.wait(timeout=5)
             server.terminate()
             try:
                 server.wait(timeout=5)

@@ -93,3 +93,65 @@ async fn real_quic_auth_pin_shutdown_and_cancellation() {
     assert!(!std::fs::read_dir(temp).unwrap().any(|entry|
         entry.unwrap().file_name().to_string_lossy().starts_with("volna-hy-")));
 }
+
+#[tokio::test]
+#[ignore = "real two-edge fixture"]
+async fn supervisor_prewarm_and_real_edge_failure_switches_quic_path() {
+    use volna_core::supervisor::*;
+    let primary = std::env::var("VOLNA_HYSTERIA_SERVER").unwrap();
+    let backup = std::env::var("VOLNA_HYSTERIA_BACKUP_SERVER").unwrap();
+    let pin = std::env::var("VOLNA_HYSTERIA_PIN").unwrap();
+    let ca = reqwest::Certificate::from_pem(
+        &std::fs::read(std::env::var("VOLNA_TEST_CA").unwrap()).unwrap()).unwrap();
+    let routes = vec![("primary",primary),("backup",backup)].into_iter()
+        .map(|(id,endpoint)| HysteriaRoute { route_id: id.into(),server: endpoint.parse().unwrap(),
+            username: "volna".into(),password: "fixture-password".into(),sni: "localhost".into(),
+            certificate_pin: pin.clone() }).collect();
+    let c = Arc::new(HysteriaConnector::new(
+        PathBuf::from(std::env::var("VOLNA_HYSTERIA_BIN").unwrap()),routes,
+        std::env::var("VOLNA_TEST_HEALTH").unwrap(),Some(ca)).unwrap());
+    let mut primary_route = attempt().route;
+    primary_route.id = "primary".into(); primary_route.failure_domain = "a".into();
+    let mut backup_route = primary_route.clone();
+    backup_route.id = "backup".into(); backup_route.failure_domain = "b".into();
+    backup_route.metrics.rtt_ms = 500.0;
+    let (tx,rx) = watch::channel(1);
+    let (active_tx,active_rx) = watch::channel(None);
+    let (status_tx,mut status_rx) = watch::channel(SupervisorStatus::default());
+    let options = SupervisorOptions {
+        interval: Duration::from_millis(100),probe_timeout: Duration::from_millis(300),
+        degraded_rtt: Duration::ZERO,degraded_samples: 1,
+        improvement_margin: Duration::from_secs(60),cooldown: Duration::ZERO,
+        race: RaceOptions { deadline: Duration::from_secs(6),
+            attempt_timeout: Duration::from_secs(5),good_enough_score: 95.0,
+            ..RaceOptions::default() },..SupervisorOptions::default() };
+    let task = tokio::spawn(supervise(c,vec![primary_route,backup_route],
+        Mode::Auto,options,SupervisorChannels { generation: rx,active: active_tx,status: status_tx },1));
+    tokio::time::timeout(Duration::from_secs(12),async {
+        loop {
+            if status_rx.borrow().backup_ready { break; }
+            status_rx.changed().await.unwrap();
+        }
+    }).await.unwrap();
+    assert_eq!(active_rx.borrow().as_ref().unwrap().route_id,"primary");
+    std::fs::write(std::env::var("VOLNA_STOP_PRIMARY").unwrap(),b"stop").unwrap();
+    tokio::time::timeout(Duration::from_secs(12),async {
+        loop {
+            if status_rx.borrow().switches > 0 { break; }
+            status_rx.changed().await.unwrap();
+        }
+    }).await.unwrap();
+    let selected = active_rx.borrow().as_ref().unwrap().clone();
+    assert_eq!(selected.route_id,"backup");
+    let body = selected.handle.get(std::env::var("VOLNA_TEST_HEALTH").unwrap()
+        .replace("/health","/payload")).send().await.unwrap().text().await.unwrap();
+    assert_eq!(body,"volna-real-quic");
+    tx.send(2).unwrap();
+    assert_eq!(task.await.unwrap(),Err(SupervisorError::Cancelled));
+    assert!(active_rx.borrow().is_none());
+    for _ in 0..100 {
+        if processes().is_empty() { break; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(processes().is_empty());
+}

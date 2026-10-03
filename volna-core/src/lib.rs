@@ -190,3 +190,5 @@ pub mod config;
 
 #[cfg(unix)]
 pub mod storage;
+
+pub mod supervisor;
