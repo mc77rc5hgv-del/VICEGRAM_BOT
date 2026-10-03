@@ -20,3 +20,7 @@ System-route activation is not yet wired to the HTTP supervisor. Android VpnServ
 DNS ownership, existing-flow migration, production service recovery and cleanup of
 partially applied policy after cancellation remain follow-up work.
 Never run the fixture example in the host namespace.
+
+The namespace fixture disables IPv4 reverse-path filtering within its isolated
+namespace, because unmarked QUIC replies otherwise fail the VPN table lookup.
+A production platform must provide a compatible reverse-path/packet-mark policy.

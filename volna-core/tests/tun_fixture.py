@@ -54,6 +54,10 @@ try:
     run("-n",namespace,"addr","add","192.0.2.2/24","dev",peer_link)
     run("-n",namespace,"link","set",peer_link,"up")
     run("-n",namespace,"route","add","default","via","192.0.2.1")
+    # Reverse-path validation otherwise consults the fail-closed policy table for
+    # unmarked QUIC replies. These sysctls affect this fresh namespace only.
+    run("netns","exec",namespace,"sysctl","-w","net.ipv4.conf.all.rp_filter=0",
+        "net.ipv4.conf.default.rp_filter=0","net.ipv4.conf."+peer_link+".rp_filter=0")
     udp = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
     udp.bind(("192.0.2.1",0))
     def echo():
@@ -137,6 +141,9 @@ try:
                 VOLNA_TEST_CA=str(ca),
                 VOLNA_TEST_HEALTH="https://192.0.2.1:" + str(origin.server_port) + "/health")
             try:
+                subprocess.run([ip,"netns","exec",namespace,"/usr/bin/python3","-c",
+                    "import socket; s=socket.create_connection(('192.0.2.1'," + str(origin.server_port) + "),2); s.close()"],
+                    check=True)
                 subprocess.run([ip,"netns","exec",namespace,
                     str(pathlib.Path("volna-core/target/debug/examples/linux_tun_probe").resolve())],
                     env=env,check=True,timeout=90)
