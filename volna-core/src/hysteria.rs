@@ -1,4 +1,4 @@
-//! Unix process adapter for Hysteria2 v2.12.3. HTTP via QUIC, not IP/TUN.
+//! Unix process adapter for Hysteria2 v2.12.3. SOCKS health path and optional Linux native TUN.
 use std::{collections::HashMap, io::Write, net::{Ipv4Addr, TcpListener},
     os::unix::fs::{OpenOptionsExt,PermissionsExt}, path::PathBuf, process::Stdio, time::Duration};
 use rand::{rngs::OsRng, RngCore};
@@ -19,6 +19,8 @@ pub struct HysteriaRoute {
     pub certificate_pin: String,
 }
 pub struct HysteriaConnector {
+    #[cfg(target_os="linux")]
+    tun_profiles: HashMap<String,crate::tun::TunProfile>,
     executable: PathBuf,
     routes: HashMap<String,HysteriaRoute>,
     health_url: String,
@@ -27,11 +29,15 @@ pub struct HysteriaConnector {
 #[derive(Debug, PartialEq, Eq)]
 pub enum HysteriaConfigError { Executable, Route, Pin, Health }
 pub struct HysteriaSession {
+    #[cfg(target_os="linux")]
+    tun_interface: Option<String>,
     proxy: SocksSession,
     child: Child,
     _directory: TempDir,
 }
 impl HysteriaSession {
+    #[cfg(target_os="linux")]
+    pub fn tun_interface(&self) -> Option<&str> { self.tun_interface.as_deref() }
     pub fn client(&self) -> &reqwest::Client { self.proxy.client() }
     pub fn process_id(&self) -> Option<u32> { self.child.id() }
     /// Deterministically kills and reaps the owned process before deleting config.
@@ -67,7 +73,10 @@ impl HysteriaConnector {
             }
             indexed.insert(route.route_id.clone(),route);
         }
-        Ok(Self { executable, routes: indexed, health_url, health_ca })
+        Ok(Self { executable, routes: indexed, health_url, health_ca,
+            #[cfg(target_os="linux")]
+            tun_profiles: HashMap::new(),
+        })
     }
 }
 fn secret() -> String {
@@ -96,7 +105,8 @@ impl Connector for HysteriaConnector {
             std::fs::set_permissions(directory.path(),std::fs::Permissions::from_mode(0o700))
                 .map_err(|_| ConnectError::Unavailable)?;
             let config_path = directory.path().join("client.json");
-            let config = json!({
+            #[allow(unused_mut)]
+            let mut config = json!({
                 "server": route.server.to_string(),
                 "auth": format!("{}:{}",route.username,route.password),
                 "tls": {
@@ -112,6 +122,16 @@ impl Connector for HysteriaConnector {
                     "password": proxy_password, "disableUDP": true
                 }
             });
+            #[cfg(target_os="linux")]
+            let profile = self.tun_profiles.get(&route.route_id);
+            #[cfg(target_os="linux")]
+            if let Some(profile) = profile {
+                if crate::tun::interface_exists(profile.interface()) {
+                    return Err(ConnectError::Unavailable);
+                }
+                config["tun"] = profile.config();
+                config["quic"] = json!({"sockopts": {"fwmark": crate::tun::TRANSPORT_MARK}});
+            }
             let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
                 .mode(0o600).open(&config_path).map_err(|_| ConnectError::Unavailable)?;
             serde_json::to_writer(&mut file,&config).map_err(|_| ConnectError::Unavailable)?;
@@ -136,7 +156,17 @@ impl Connector for HysteriaConnector {
                     if child.try_wait().map_err(|_| ConnectError::Unavailable)?.is_some() {
                         return Err(ConnectError::Unavailable);
                     }
-                    return Ok(HysteriaSession { proxy: session, child, _directory: directory });
+                    #[cfg(target_os="linux")]
+                    if let Some(profile) = profile {
+                        if !crate::tun::interface_exists(profile.interface()) {
+                            sleep(Duration::from_millis(20)).await;
+                            continue;
+                        }
+                    }
+                    return Ok(HysteriaSession { proxy: session, child, _directory: directory,
+                        #[cfg(target_os="linux")]
+                        tun_interface: profile.map(|p| p.interface().to_string()),
+                    });
                 }
                 sleep(Duration::from_millis(50)).await;
             }
@@ -157,5 +187,22 @@ impl crate::supervisor::MonitoredConnector for HysteriaConnector {
                 || session.child.try_wait().map_err(|_| ())?.is_some() { return Err(()); }
             Ok(crate::supervisor::HealthSample { rtt: started.elapsed() })
         })
+    }
+}
+
+#[cfg(target_os="linux")]
+impl HysteriaConnector {
+    /// Enables candidate TUN devices without automatic default route changes.
+    /// LinuxPolicyRouter owns activation; CAP_NET_ADMIN/root is required.
+    pub fn with_tun(mut self,profiles: HashMap<String,crate::tun::TunProfile>)
+        -> Result<Self,HysteriaConfigError> {
+        let mut names = std::collections::HashSet::new();
+        let mut slots = std::collections::HashSet::new();
+        for (route,profile) in &profiles {
+            if !self.routes.contains_key(route) || !names.insert(profile.interface())
+                || !slots.insert(profile.slot()) { return Err(HysteriaConfigError::Route); }
+        }
+        self.tun_profiles = profiles;
+        Ok(self)
     }
 }

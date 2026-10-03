@@ -18,3 +18,10 @@ jobs:
       - run: python3 volna-core/tests/socks_fixture.py
       - run: python3 volna-core/tests/hysteria_fixture.py
       - run: cargo clippy --manifest-path volna-core/Cargo.toml --all-targets -- -D warnings
+  linux-tun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --manifest-path volna-core/Cargo.toml --example linux_tun_probe
+      - run: sudo python3 volna-core/tests/tun_fixture.py

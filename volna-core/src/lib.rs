@@ -1,4 +1,4 @@
-//! Connection policy only: this crate does not open sockets or install routes.
+//! Connection policy and opt-in platform adapters for VOLNA.
 //! Platform adapters must authenticate tunnels and validate end-to-end health.
 use std::time::Duration;
 
@@ -192,3 +192,6 @@ pub mod config;
 pub mod storage;
 
 pub mod supervisor;
+
+#[cfg(target_os="linux")]
+pub mod tun;
