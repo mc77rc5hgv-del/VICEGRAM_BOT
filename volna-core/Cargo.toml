@@ -8,3 +8,10 @@ description = "Platform-independent connection policy for VOLNA VPN"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+futures-util = "0.3"
+tokio = { version = "1", features = ["time", "sync", "macros", "rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
