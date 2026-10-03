@@ -31,6 +31,12 @@ class Origin(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path in ("/manifest", "/invalid"):
+            body = self.manifest_path.read_bytes() if self.path == "/manifest" else b"invalid"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_error(404)
     def log_message(self, *args):
@@ -90,6 +96,7 @@ with tempfile.TemporaryDirectory(prefix="volna-socks-") as tmp:
                     "-CA", str(ca), "-CAkey", str(ca_key), "-CAcreateserial",
                     "-out", str(cert), "-days", "1", "-extfile", str(extensions)],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    Origin.manifest_path = tmp / "manifest.json"
     origin = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Origin)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
@@ -105,10 +112,12 @@ with tempfile.TemporaryDirectory(prefix="volna-socks-") as tmp:
         env = dict(os.environ, VOLNA_TEST_PROXY="127.0.0.1:" + str(socks.server_address[1]),
                    VOLNA_TEST_DEAD_PROXY="127.0.0.1:" + str(dead.getsockname()[1]),
                    VOLNA_TEST_HEALTH="https://localhost:" + str(origin.server_port) + "/health",
-                   VOLNA_TEST_CA=str(ca))
+                   VOLNA_TEST_CA=str(ca), VOLNA_TEST_MANIFEST=str(Origin.manifest_path))
         try:
             subprocess.run(["cargo", "test", "--manifest-path", "volna-core/Cargo.toml",
                             "--test", "socks", "--", "--ignored"], env=env, check=True, timeout=180)
+            subprocess.run(["cargo", "test", "--manifest-path", "volna-core/Cargo.toml",
+                            "--test", "config_fetch", "--", "--ignored"], env=env, check=True, timeout=180)
             assert socks.connections >= 3, "Requests must pass through the SOCKS relay"
         finally:
             socks.shutdown()

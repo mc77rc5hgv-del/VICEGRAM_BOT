@@ -185,3 +185,5 @@ pub mod socks;
 
 #[cfg(unix)]
 pub mod hysteria;
+
+pub mod config;
