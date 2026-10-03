@@ -128,20 +128,6 @@ impl LinuxPolicyRouter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn profiles_validate_and_disable_auto_routes() {
-        for (name,slot) in [("eth0",1),("volna/evil",1),("volna0",0),("volna0",65)] {
-            assert!(TunProfile::new(name.into(),slot).is_err());
-        }
-        let p = TunProfile::new("volna0".into(),1).unwrap();
-        assert_eq!(p.config()["address"]["ipv4"],"100.64.1.1/30");
-        assert!(p.config().get("route").is_none());
-    }
-}
-
 /// Activates only the TUN interface owned by the selected authenticated session.
 /// Router ownership remains with the caller; cancellation never disconnects it.
 pub struct HysteriaTunActivator<'a> { pub router: &'a mut LinuxPolicyRouter }
@@ -157,3 +143,18 @@ impl crate::supervisor::PathActivator<crate::hysteria::HysteriaSession> for Hyst
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn profiles_validate_and_disable_auto_routes() {
+        for (name,slot) in [("eth0",1),("volna/evil",1),("volna0",0),("volna0",65)] {
+            assert!(TunProfile::new(name.into(),slot).is_err());
+        }
+        let p = TunProfile::new("volna0".into(),1).unwrap();
+        assert_eq!(p.config()["address"]["ipv4"],"100.64.1.1/30");
+        assert!(p.config().get("route").is_none());
+    }
+}
+
