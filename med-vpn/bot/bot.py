@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from html import escape
+from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -19,6 +21,7 @@ from aiogram.types import (
 )
 
 import db
+import ux
 import hysteria_backend as hysteria
 import keyboards as kb
 import plans
@@ -29,14 +32,18 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("med-vpn-bot")
 
 router = Router()
+# Account actions and credentials must stay in private chats.
+router.message.filter(F.chat.type == "private")
+router.callback_query.filter(F.message.chat.type == "private")
 
 PAGE_SIZE = 30
 
 USER_COMMANDS = [
     BotCommand(command="start", description="Главное меню"),
+    BotCommand(command="connect", description="Подключить VPN"),
     BotCommand(command="subscribe", description="Тарифы и оплата"),
     BotCommand(command="myconfig", description="Прислать ссылку повторно"),
-    BotCommand(command="status", description="Статус подключения"),
+    BotCommand(command="status", description="Мой доступ и срок подписки"),
     BotCommand(command="revoke", description="Отключить доступ"),
     BotCommand(command="referral", description="Реферальная программа"),
     BotCommand(command="help", description="Помощь"),
@@ -98,18 +105,24 @@ def _fmt_dt(iso: str | None) -> str:
 
 
 async def _send_welcome(bot: Bot, chat_id: int, telegram_id: int) -> None:
-    markup = kb.main_menu(_is_admin(telegram_id))
-    image_path = Path(settings.welcome_image_path)
-    if image_path.is_file():
-        await bot.send_photo(
-            chat_id,
-            FSInputFile(image_path),
-            caption=WELCOME_TEXT,
-            parse_mode="Markdown",
-            reply_markup=markup,
-        )
-    else:
-        await bot.send_message(chat_id, WELCOME_TEXT, parse_mode="Markdown", reply_markup=markup)
+    client = db.get_active_client(telegram_id)
+    await bot.send_message(chat_id, ux.dashboard(settings.service_name, client),
+        reply_markup=kb.main_menu(_is_admin(telegram_id), ux.has_access(client)))
+
+
+async def _screen(callback: CallbackQuery, text: str, markup, parse_mode=None) -> None:
+    """Update navigation in place."""
+    try:
+        if callback.message.photo:
+            if len(text) > 1024:
+                await callback.message.answer(text, parse_mode=parse_mode, reply_markup=markup)
+            else:
+                await callback.message.edit_caption(caption=text, parse_mode=parse_mode, reply_markup=markup)
+        else:
+            await callback.message.edit_text(text, parse_mode=parse_mode, reply_markup=markup)
+    except TelegramBadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
 
 
 async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
@@ -117,13 +130,15 @@ async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
     uri = hysteria.build_hysteria_uri(client.username, client.password, label)
     await bot.send_message(
         chat_id,
-        f"✅ Ваша ссылка *{settings.service_name}* готова.\n\n"
-        f"`{uri}`\n\n"
+        f"✅ Ваша ссылка <b>{escape(settings.service_name)}</b> готова.\n\n"
+        f"<code>{escape(uri)}</code>\n\n"
         "Откройте Happ → Добавить сервер → Из буфера обмена (или отсканируйте QR-код ниже).",
-        parse_mode="Markdown",
+        parse_mode="HTML",
+        reply_markup=kb.connection_menu(uri),
     )
     qr_png = config_to_qr_png(uri)
-    await bot.send_photo(chat_id, BufferedInputFile(qr_png.read(), filename="med-vpn-qr.png"))
+    await bot.send_photo(chat_id, BufferedInputFile(qr_png.read(), filename="med-vpn-qr.png"),
+        caption="Личный QR-код для Happ. Не пересылайте его другим людям.")
 
 
 async def _send_no_link_yet(bot: Bot, chat_id: int, telegram_id: int, invited: int = 0) -> None:
@@ -141,6 +156,10 @@ async def _send_no_link_yet(bot: Bot, chat_id: int, telegram_id: int, invited: i
 
 async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int, telegram_name: str | None) -> None:
     client = db.get_active_client(telegram_id)
+    if client and not ux.has_access(client):
+        await bot.send_message(chat_id, "Срок подписки истёк. Продлите доступ, затем получите ссылку.",
+                               reply_markup=kb.plans_menu())
+        return
     if client:
         await _send_config(bot, chat_id, client)
         return
@@ -155,7 +174,7 @@ async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int, telegram_na
         hysteria.add_user(username, password)
     except hysteria.HysteriaError as exc:
         log.exception("Failed to provision referral-earned client for %s", telegram_id)
-        await bot.send_message(chat_id, f"⚠️ Не удалось создать ссылку: {exc}")
+        await bot.send_message(chat_id, "⚠️ Не удалось подготовить доступ. Попробуйте позже или откройте поддержку.")
         return
 
     client = db.create_client(
@@ -167,18 +186,9 @@ async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int, telegram_na
 
 async def _handle_status(bot: Bot, chat_id: int, telegram_id: int) -> None:
     client = db.get_active_client(telegram_id)
-    if not client:
-        await bot.send_message(chat_id, "🔴 Доступ не активирован.", reply_markup=kb.main_menu(_is_admin(telegram_id)))
-        return
-    if client.expires_at:
-        text = (
-            f"🟢 Доступ активен (подписка)\n"
-            f"Выдан: {_fmt_dt(client.created_at)}\n"
-            f"Действует до: {_fmt_dt(client.expires_at)}"
-        )
-    else:
-        text = f"🟢 Доступ активен (бессрочный)\nВыдан: {_fmt_dt(client.created_at)}"
-    await bot.send_message(chat_id, text, reply_markup=kb.main_menu(_is_admin(telegram_id)))
+    await bot.send_message(chat_id, ux.dashboard(settings.service_name, client)
+        + "\n\nЭто статус доступа. Подключение устройства проверяйте в Happ.",
+        reply_markup=kb.account_menu() if ux.has_access(client) else kb.main_menu(_is_admin(telegram_id)))
 
 
 async def _handle_revoke(bot: Bot, chat_id: int, telegram_id: int) -> None:
@@ -298,7 +308,7 @@ async def cmd_referral(message: Message) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(HELP_TEXT, parse_mode="Markdown", reply_markup=kb.main_menu(_is_admin(message.from_user.id)))
+    await message.answer("Выберите устройство для инструкции подключения:", reply_markup=kb.platforms_menu())
 
 
 @router.message(Command("subscribe"))
@@ -308,10 +318,10 @@ async def cmd_subscribe(message: Message) -> None:
 
 @router.message(Command("getconfig"))
 async def cmd_getconfig(message: Message) -> None:
-    await message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
+    await _handle_myconfig(message.bot, message.chat.id, message.from_user.id, message.from_user.username)
 
 
-@router.message(Command("myconfig"))
+@router.message(Command("myconfig", "connect"))
 async def cmd_myconfig(message: Message) -> None:
     await _handle_myconfig(message.bot, message.chat.id, message.from_user.id, message.from_user.username)
 
@@ -559,21 +569,43 @@ async def on_successful_payment(message: Message) -> None:
 @router.callback_query(F.data == "main_menu")
 async def cb_main_menu(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _send_welcome(callback.bot, callback.message.chat.id, callback.from_user.id)
+    client = db.get_active_client(callback.from_user.id)
+    await _screen(callback, ux.dashboard(settings.service_name, client),
+        kb.main_menu(_is_admin(callback.from_user.id), ux.has_access(client)))
 
 
 @router.callback_query(F.data == "help")
 async def cb_help(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.answer(
-        HELP_TEXT, parse_mode="Markdown", reply_markup=kb.main_menu(_is_admin(callback.from_user.id))
-    )
+    await _screen(callback, "Выберите устройство для инструкции подключения:", kb.platforms_menu())
+
+
+@router.callback_query(F.data.startswith("guide:"))
+async def cb_guide(callback: CallbackQuery) -> None:
+    await callback.answer()
+    text = ux.guide(callback.data.split(":", 1)[1])
+    if text is not None:
+        await _screen(callback, text, kb.main_menu(_is_admin(callback.from_user.id)))
+
+
+@router.callback_query(F.data == "support")
+async def cb_support(callback: CallbackQuery) -> None:
+    await callback.answer()
+    url = "https://t.me/" + settings.support_username.lstrip("@")
+    await _screen(callback,
+        "Не удаётся подключиться?\n\n"
+        "1. Обновите Happ и получите ссылку повторно.\n"
+        "2. Проверьте срок доступа в разделе «Мой доступ».\n"
+        "3. Попробуйте Wi-Fi и мобильную сеть.\n\n"
+        "Если проблема остаётся, напишите в поддержку: укажите устройство, "
+        "версию Happ и текст ошибки. Пароль и личную ссылку присылать не нужно.",
+        kb.support_menu(url))
 
 
 @router.callback_query(F.data == "plans")
 async def cb_plans(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
+    await _screen(callback, PLANS_INTRO, kb.plans_menu(), parse_mode="Markdown")
 
 
 @router.callback_query(F.data.startswith("plan:"))
@@ -666,7 +698,7 @@ async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
 @router.callback_query(F.data == "getconfig")
 async def cb_getconfig(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.answer(PLANS_INTRO, parse_mode="Markdown", reply_markup=kb.plans_menu())
+    await _screen(callback, PLANS_INTRO, kb.plans_menu(), parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "myconfig")
