@@ -21,9 +21,14 @@ fn connector(password: &str, pin: String, server: String) -> HysteriaConnector {
         Some(ca)).unwrap()
 }
 fn processes() -> Vec<u32> {
-    let path = format!("/proc/{}/task/{}/children",std::process::id(),std::process::id());
-    std::fs::read_to_string(path).unwrap_or_default().split_whitespace()
-        .filter_map(|pid| pid.parse().ok()).collect()
+    let mut children = Vec::new();
+    for task in std::fs::read_dir("/proc/self/task").unwrap() {
+        let path = task.unwrap().path().join("children");
+        children.extend(std::fs::read_to_string(path).unwrap_or_default()
+            .split_whitespace().filter_map(|pid| pid.parse::<u32>().ok()));
+    }
+    children
+
 }
 #[tokio::test]
 #[ignore = "requires tests/hysteria_fixture.py and verified Hysteria2 binary"]
