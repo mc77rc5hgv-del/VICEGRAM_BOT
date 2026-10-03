@@ -29,7 +29,7 @@ fn check_parent(path: &Path) -> Result<(),StorageError> {
     Ok(())
 }
 fn open_private(path: &Path,create: bool) -> Result<File,StorageError> {
-    let file = OpenOptions::new().read(true).write(create).create(create)
+    let file = OpenOptions::new().read(true).write(create).create(create).truncate(false)
         .mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(path).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound {
             StorageError::Missing } else { StorageError::Io })?;

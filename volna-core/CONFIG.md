@@ -24,8 +24,11 @@ ConfigStore keeps three verified manifests in memory. snapshot/restore exchange
 signed bytes; version_floor and last_observed_time are explicit persistence state.
 The platform MUST persist the signed snapshot, version floor and clock high-water
 mark atomically in protected storage before activating an updated configuration.
-This increment does not implement disk/Keystore persistence. Recreating a store
-with floor=0 loses rollback protection across restarts; deleting app data resets it.
+On Unix, PersistentConfigStore implements the atomic disk cache and
+ConfigClient.refresh_persistent commits before returning usable configuration.
+See STORAGE.md for permissions, locking and failure behavior. Keystore and other
+platform storage remain pending. Recreating an in-memory store with floor=0
+loses rollback protection across restarts; deleting app data resets it.
 Restoring an expired signed manifest retains its version floor without making it usable.
 
 The verified wrapper alone can produce Hysteria routes, excluding draining/disabled
