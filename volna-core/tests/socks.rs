@@ -30,7 +30,7 @@ async fn verified_https_data_path_and_no_direct_fallback() {
         ProxyRoute { route_id: "fixture".into(),socks_address: address }],
         &health,certificate).unwrap();
     let (_tx, rx) = watch::channel(1);
-    let winner = connect_race(Arc::new(make(proxy,Some(ca))),
+    let winner = connect_race(Arc::new(make(proxy,Some(ca.clone()))),
         vec![attempt()],RaceOptions::default(),rx.clone(),1).await.unwrap();
     let body = winner.session.client().get(health.replace("/health","/payload"))
         .send().await.unwrap().text().await.unwrap();
@@ -40,6 +40,6 @@ async fn verified_https_data_path_and_no_direct_fallback() {
         RaceOptions::default(),rx.clone(),1).await.is_err());
     let dead: SocketAddr = std::env::var("VOLNA_TEST_DEAD_PROXY").unwrap().parse().unwrap();
     // Reachable HTTPS origin cannot mask an unavailable proxy with direct traffic.
-    assert!(connect_race(Arc::new(make(dead,None)),vec![attempt()],
+    assert!(connect_race(Arc::new(make(dead,Some(ca))),vec![attempt()],
         RaceOptions::default(),rx,1).await.is_err());
 }
