@@ -589,7 +589,7 @@ async def cb_guide(callback: CallbackQuery) -> None:
     await callback.answer()
     text = ux.guide(callback.data.split(":", 1)[1])
     if text is not None:
-        await _screen(callback, text, kb.main_menu(_is_admin(callback.from_user.id)))
+        await _screen(callback, text, kb.guide_menu(callback.data.split(":", 1)[1]))
 
 
 @router.callback_query(F.data == "support")

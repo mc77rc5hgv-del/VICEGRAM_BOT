@@ -1,6 +1,7 @@
 from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 import plans as plans_module
+import ux
 
 
 def main_menu(is_admin: bool, has_access: bool = False) -> InlineKeyboardMarkup:
@@ -111,4 +112,14 @@ def list_pagination(offset: int, page_size: int, has_more: bool) -> InlineKeyboa
         nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin_list:{offset + page_size}"))
     rows = [nav] if nav else []
     rows.append([InlineKeyboardButton(text="⬅️ Админ-панель", callback_data="admin_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def guide_menu(platform: str) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=label, url=url)]
+            for label,url in ux.HAPP_DOWNLOADS.get(platform, ())]
+    rows.extend([
+        [InlineKeyboardButton(text="🔌 Получить мою VPN-ссылку", callback_data="myconfig")],
+        [InlineKeyboardButton(text="⬅️ Выбрать другое устройство", callback_data="help")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)

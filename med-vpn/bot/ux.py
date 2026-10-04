@@ -2,6 +2,25 @@
 from datetime import datetime, timezone
 PLATFORMS = {"android": "Android", "ios": "iPhone / iPad", "windows": "Windows", "macos": "macOS"}
 
+# Official Happ download links, published in Happ-proxy/happ-desktop README.
+HAPP_DOWNLOADS = {
+    "android": (
+        ("Google Play", "https://play.google.com/store/apps/details?id=com.happproxy"),
+        ("Скачать APK", "https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk"),
+    ),
+    "ios": (
+        ("App Store", "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215"),
+        ("App Store РФ — Happ Lite", "https://apps.apple.com/ru/app/happ-lite/id6799917773"),
+    ),
+    "windows": (
+        ("Скачать для Windows x64", "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe"),
+        ("Скачать для Windows ARM64", "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.arm64.exe"),
+    ),
+    "macos": (
+        ("Скачать для Mac — Intel / Apple Silicon", "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg"),
+    ),
+}
+
 def has_access(client, now=None):
     if client is None or not client.is_active:
         return False
@@ -28,8 +47,14 @@ def guide(platform):
     device = PLATFORMS.get(platform)
     if device is None:
         return None
-    return ("Подключение на " + device + "\n\n"
-        "1. Установите Happ из официального источника для вашего устройства.\n"
+    notes = {
+        "android": "Если Google Play недоступен, используйте официальный APK.\n\n",
+        "ios": "Для российского App Store доступна отдельная версия Happ Lite.\n\n",
+        "windows": "Для большинства ПК выберите x64. Для Windows на ARM — ARM64.\n\n",
+        "macos": "Один установщик подходит для Mac с Intel и Apple Silicon.\n\n",
+    }
+    return ("Подключение на " + device + "\n\n" + notes[platform]
+        "1. Скачайте Happ по кнопке ниже и установите приложение.\n"
         "2. В боте нажмите «Подключить VPN» и скопируйте личную ссылку.\n"
         "3. В Happ добавьте сервер из буфера обмена или отсканируйте QR-код.\n"
         "4. Включите подключение. При первом запуске разрешите создание VPN-профиля.\n\n"
