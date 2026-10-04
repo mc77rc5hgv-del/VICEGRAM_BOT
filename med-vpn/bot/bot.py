@@ -82,7 +82,7 @@ HELP_TEXT = (
 
 def _build_plans_intro() -> str:
     lines = [
-        f"{p.emoji} {p.label} — *{p.price_rub} ₽*" + (f" _(-{p.discount_percent}%)_" if p.discount_percent else "")
+        f"{p.emoji} {p.label} — *{p.price_rub} ₽* / {p.price_stars} ⭐ (≈{p.price_per_month:.0f} ₽/мес)" + (f" _(-{p.discount_percent}%)_" if p.discount_percent else "")
         for p in plans.PLANS
     ]
     return "💳 *Тарифы MED VPN*\n\nЧем длиннее срок — тем выгоднее подписка 🙌\n\n" + "\n".join(lines)
@@ -105,7 +105,7 @@ def _fmt_dt(iso: str | None) -> str:
 
 
 async def _send_welcome(bot: Bot, chat_id: int, telegram_id: int) -> None:
-    client = db.get_active_client(telegram_id)
+    client = db.get_paid_client(telegram_id)
     await bot.send_message(chat_id, ux.dashboard(settings.service_name, client),
         reply_markup=kb.main_menu(_is_admin(telegram_id), ux.has_access(client)))
 
@@ -130,6 +130,12 @@ async def _screen(callback: CallbackQuery, text: str, markup, parse_mode=None) -
 
 
 async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
+    current = db.get_paid_client(client.telegram_id)
+    if current is None or chat_id != client.telegram_id:
+        await bot.send_message(chat_id, "Для получения ссылки нужна оплаченная действующая подписка.",
+                               reply_markup=kb.plans_menu())
+        return
+    client = current
     label = f"{settings.server_flag} {settings.service_name}"
     uri = hysteria.build_hysteria_uri(client.username, client.password, label)
     await bot.send_message(
@@ -145,51 +151,21 @@ async def _send_config(bot: Bot, chat_id: int, client: db.Client) -> None:
         caption="Личный QR-код для Happ. Не пересылайте его другим людям.")
 
 
-async def _send_no_link_yet(bot: Bot, chat_id: int, telegram_id: int, invited: int = 0) -> None:
-    threshold = settings.referral_free_threshold
-    remaining = max(0, threshold - invited)
-    await bot.send_message(
-        chat_id,
-        "У вас пока нет доступа.\n\n"
-        f"🆓 Пригласите {threshold} друзей по реферальной ссылке (/referral) — получите доступ "
-        f"бесплатно (осталось пригласить: {remaining}).\n"
-        "💳 Или оформите подписку прямо сейчас: /subscribe",
-        reply_markup=kb.main_menu(_is_admin(telegram_id)),
-    )
-
-
 async def _handle_myconfig(bot: Bot, chat_id: int, telegram_id: int, telegram_name: str | None) -> None:
-    client = db.get_active_client(telegram_id)
-    if client and not ux.has_access(client):
-        await bot.send_message(chat_id, "Срок подписки истёк. Продлите доступ, затем получите ссылку.",
-                               reply_markup=kb.plans_menu())
+    if db.get_paid_client(telegram_id) is None:
+        await bot.send_message(chat_id,
+            "Для получения VPN-ссылки нужна оплаченная действующая подписка.\n"
+            "Выберите тариф. Stars активируют доступ автоматически, "
+            "оплату рублями подтверждает менеджер.", reply_markup=kb.plans_menu())
         return
-    if client:
-        await _send_config(bot, chat_id, client)
-        return
-
-    stats = db.referral_stats(telegram_id)
-    if stats["invited"] < settings.referral_free_threshold:
-        await _send_no_link_yet(bot, chat_id, telegram_id, stats["invited"])
-        return
-
-    try:
-        username, password = hysteria.generate_credentials(telegram_id)
-        hysteria.add_user(username, password)
-    except hysteria.HysteriaError as exc:
-        log.exception("Failed to provision referral-earned client for %s", telegram_id)
-        await bot.send_message(chat_id, "⚠️ Не удалось подготовить доступ. Попробуйте позже или откройте поддержку.")
-        return
-
-    client = db.create_client(
-        telegram_id=telegram_id, telegram_name=telegram_name, username=username, password=password
-    )
-    await bot.send_message(chat_id, f"🎉 Вы пригласили {stats['invited']} друзей — вот ваш бесплатный доступ!")
-    await _send_config(bot, chat_id, client)
+    await bot.send_message(chat_id,
+        "Подключить VPN — шаг 1 из 2\n\nВыберите устройство. "
+        "Сначала установите Happ по инструкции, затем получите личную ссылку и QR-код.",
+        reply_markup=kb.platforms_menu())
 
 
 async def _handle_status(bot: Bot, chat_id: int, telegram_id: int) -> None:
-    client = db.get_active_client(telegram_id)
+    client = db.get_paid_client(telegram_id)
     await bot.send_message(chat_id, ux.dashboard(settings.service_name, client)
         + "\n\nЭто статус доступа. Подключение устройства проверяйте в Happ.",
         reply_markup=kb.account_menu() if ux.has_access(client) else kb.main_menu(_is_admin(telegram_id)))
@@ -215,17 +191,17 @@ async def _send_referral(bot: Bot, chat_id: int, telegram_id: int) -> None:
     me = await bot.get_me()
     link = f"https://t.me/{me.username}?start=ref_{telegram_id}"
     stats = db.referral_stats(telegram_id)
+    paying = db.paying_referrals(telegram_id)
     percent = int(settings.referral_commission_rate * 100)
-    await bot.send_message(
-        chat_id,
-        "💰 *Реферальная программа*\n\n"
-        f"Приглашайте друзей — получайте {percent}% от суммы их покупок.\n\n"
-        f"Ваша ссылка:\n`{link}`\n\n"
-        f"Приглашено: {stats['invited']}\n"
-        f"Баланс: {stats['balance']:.2f} {settings.default_currency}",
-        parse_mode="Markdown",
-        reply_markup=kb.main_menu(_is_admin(telegram_id)),
-    )
+    await bot.send_message(chat_id,
+        "💰 Реферальная программа\n\n"
+        f"Приглашайте друзей — получайте {percent}% от подтверждённых покупок.\n\n"
+        f"Приглашено: {stats['invited']}\nОплатили: {paying}\n"
+        f"Учтённый баланс: {stats['balance']:.2f}\n\n"
+        "Приглашения не открывают бесплатный VPN-доступ. Для подключения нужна подписка.\n"
+        "Выплаты согласуются с поддержкой; рубли и Stars уточняются отдельно.\n\n"
+        f"Ваша ссылка:\n{link}",
+        reply_markup=kb.referral_menu(link, "https://t.me/" + settings.support_username.lstrip("@")))
 
 
 async def _grant_subscription(
@@ -312,7 +288,7 @@ async def cmd_referral(message: Message) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer("Выберите устройство для инструкции подключения:", reply_markup=kb.platforms_menu())
+    await _handle_myconfig(message.bot, message.chat.id, message.from_user.id, message.from_user.username)
 
 
 @router.message(Command("subscribe"))
@@ -416,7 +392,7 @@ async def cmd_admin_grant(message: Message) -> None:
             f"✅ Вам выдана подписка *{settings.service_name}* «{plan.label}» до {_fmt_dt(client.expires_at)}.",
             parse_mode="Markdown",
         )
-        await _send_config(message.bot, target_id, client)
+        await _handle_myconfig(message.bot, target_id, target_id, None)
     except Exception:
         log.exception("Failed to notify %s about granted subscription", target_id)
 
@@ -538,17 +514,14 @@ async def cmd_admin_payout(message: Message) -> None:
 
 @router.message(F.successful_payment)
 async def on_successful_payment(message: Message) -> None:
-    payload = message.successful_payment.invoice_payload
-    parts = payload.split(":")
-    if len(parts) != 3 or parts[0] != "sub":
-        log.warning("Unexpected successful_payment payload: %s", payload)
+    payment = message.successful_payment
+    plan = _payment_plan(payment.invoice_payload, message.from_user.id,
+                         payment.currency, payment.total_amount)
+    if plan is None:
+        log.warning("Payment does not match user/plan")
+        await message.answer("Оплата требует проверки. Обратитесь в поддержку.")
         return
-    plan_key, telegram_id_str = parts[1], parts[2]
-    plan = plans.PLANS_BY_KEY.get(plan_key)
-    if not plan:
-        log.warning("Unknown plan in payment payload: %s", payload)
-        return
-    telegram_id = int(telegram_id_str)
+    telegram_id = message.from_user.id
 
     try:
         client = await _grant_subscription(
@@ -565,7 +538,7 @@ async def on_successful_payment(message: Message) -> None:
         return
 
     await message.answer(f"✅ Оплата получена! Подписка «{plan.label}» активна до {_fmt_dt(client.expires_at)}.")
-    await _send_config(message.bot, message.chat.id, client)
+    await _handle_myconfig(message.bot, message.chat.id, client.telegram_id, message.from_user.username)
 
 
 # ---- Inline button callbacks ----
@@ -573,7 +546,7 @@ async def on_successful_payment(message: Message) -> None:
 @router.callback_query(F.data == "main_menu")
 async def cb_main_menu(callback: CallbackQuery) -> None:
     await callback.answer()
-    client = db.get_active_client(callback.from_user.id)
+    client = db.get_paid_client(callback.from_user.id)
     await _screen(callback, ux.dashboard(settings.service_name, client),
         kb.main_menu(_is_admin(callback.from_user.id), ux.has_access(client)))
 
@@ -581,15 +554,30 @@ async def cb_main_menu(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "help")
 async def cb_help(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _screen(callback, "Выберите устройство для инструкции подключения:", kb.platforms_menu())
+    await _handle_myconfig(callback.bot, callback.message.chat.id, callback.from_user.id, callback.from_user.username)
 
 
 @router.callback_query(F.data.startswith("guide:"))
 async def cb_guide(callback: CallbackQuery) -> None:
     await callback.answer()
+    if db.get_paid_client(callback.from_user.id) is None:
+        await _handle_myconfig(callback.bot, callback.message.chat.id, callback.from_user.id, callback.from_user.username)
+        return
     text = ux.guide(callback.data.split(":", 1)[1])
     if text is not None:
         await _screen(callback, text, kb.guide_menu(callback.data.split(":", 1)[1]))
+
+
+@router.callback_query(F.data.startswith("config:"))
+async def cb_final_config(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.data.split(":",1)[1] not in ux.PLATFORMS:
+        return
+    client = db.get_paid_client(callback.from_user.id)
+    if client is None:
+        await _handle_myconfig(callback.bot, callback.message.chat.id, callback.from_user.id, callback.from_user.username)
+        return
+    await _send_config(callback.bot, callback.message.chat.id, client)
 
 
 @router.callback_query(F.data == "support")
@@ -604,6 +592,43 @@ async def cb_support(callback: CallbackQuery) -> None:
         "Если проблема остаётся, напишите в поддержку: укажите устройство, "
         "версию Happ и текст ошибки. Пароль и личную ссылку присылать не нужно.",
         kb.support_menu(url))
+
+
+
+@router.callback_query(F.data == "subscription_info")
+async def cb_subscription_info(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await _screen(callback,
+        "Подписка и продление\n\n"
+        "Один месяц тарифа — 30 дней. При продлении активной подписки дни добавляются "
+        "к текущему сроку; после истечения — с момента активации.\n\n"
+        "Stars: автоматическая активация после подтверждения Telegram.\n"
+        "Рубли: доступ после проверки оплаты менеджером. Кнопка «Я оплатил(а)» "
+        "сама не активирует VPN.\n\nЛичная ссылка сохраняется при продлении активного доступа.",
+        kb.plans_menu())
+
+
+@router.callback_query(F.data == "purchase_history")
+async def cb_purchase_history(callback: CallbackQuery) -> None:
+    await callback.answer()
+    rows = db.purchase_history(callback.from_user.id)
+    lines = [f"{_fmt_dt(r['created_at'])}: {r['amount']:g} {r['currency']}" for r in rows]
+    await _screen(callback, "🧾 Последние 5 платежей\n\n" +
+        ("\n".join(lines) if lines else "Подтверждённых платежей пока нет."), kb.plans_menu())
+
+
+@router.callback_query(F.data == "referral_rules")
+async def cb_referral_rules(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await _screen(callback,
+        "Как работает реферальная программа\n\n"
+        "1. Поделитесь личным приглашением.\n"
+        "2. Друг впервые запускает бота по этой ссылке.\n"
+        f"3. После подтверждения покупки начисляется {int(settings.referral_commission_rate*100)}%.\n\n"
+        "За приглашение без покупки комиссия не начисляется. Реферал закрепляется "
+        "при первом запуске. Выплаты проводятся вручную через поддержку. "
+        "Само приглашение не даёт бесплатного доступа.",
+        kb.main_menu(_is_admin(callback.from_user.id)))
 
 
 @router.callback_query(F.data == "plans")
@@ -694,15 +719,26 @@ async def cb_pay_stars(callback: CallbackQuery) -> None:
     )
 
 
+def _payment_plan(payload: str, telegram_id: int, currency: str, amount: int):
+    parts = payload.split(":")
+    if len(parts) != 3 or parts[0] != "sub" or parts[2] != str(telegram_id):
+        return None
+    plan = plans.PLANS_BY_KEY.get(parts[1])
+    return plan if plan and currency == "XTR" and amount == plan.price_stars else None
+
+
 @router.pre_checkout_query()
 async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
-    await pre_checkout_query.answer(ok=True)
+    plan = _payment_plan(pre_checkout_query.invoice_payload, pre_checkout_query.from_user.id,
+                         pre_checkout_query.currency, pre_checkout_query.total_amount)
+    await pre_checkout_query.answer(ok=plan is not None,
+        error_message="Откройте тарифы заново: платёж не соответствует подписке." if plan is None else None)
 
 
 @router.callback_query(F.data == "getconfig")
 async def cb_getconfig(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _screen(callback, PLANS_INTRO, kb.plans_menu(), parse_mode="Markdown")
+    await _handle_myconfig(callback.bot, callback.message.chat.id, callback.from_user.id, callback.from_user.username)
 
 
 @router.callback_query(F.data == "myconfig")

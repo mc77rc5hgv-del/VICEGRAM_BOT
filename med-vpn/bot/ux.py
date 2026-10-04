@@ -25,7 +25,7 @@ def has_access(client, now=None):
     if client is None or not client.is_active:
         return False
     if not client.expires_at:
-        return True
+        return False
     try:
         expiry = datetime.fromisoformat(client.expires_at)
         return expiry.tzinfo is not None and expiry > (now or datetime.now(timezone.utc))
@@ -37,10 +37,10 @@ def dashboard(service_name, client):
         until = (datetime.fromisoformat(client.expires_at).strftime("%d.%m.%Y %H:%M UTC")
                  if client.expires_at else "без ограничения срока")
         status = "🟢 Доступ активен\nСрок: " + until
-        action = "Нажмите «Подключить VPN», чтобы получить вашу ссылку и QR-код."
+        action = "Нажмите «Подключить VPN», чтобы пройти инструкцию и получить ссылку и QR-код."
     else:
         status = "🔴 Подписка истекла" if client and client.expires_at else "⚪ Доступ пока не активирован"
-        action = "Выберите тариф или пригласите друзей. Если доступ уже оплачен — откройте поддержку."
+        action = "Выберите тариф. Если доступ уже оплачен — откройте поддержку."
     return service_name + "\n\n" + status + "\n\n" + action
 
 def guide(platform):
@@ -55,7 +55,7 @@ def guide(platform):
     }
     return ("Подключение на " + device + "\n\n" + notes[platform]
         + "1. Скачайте Happ по кнопке ниже и установите приложение.\n"
-        "2. В боте нажмите «Подключить VPN» и скопируйте личную ссылку.\n"
+        "2. После установки нажмите «Happ установлен — получить ссылку и QR» ниже.\n"
         "3. В Happ добавьте сервер из буфера обмена или отсканируйте QR-код.\n"
         "4. Включите подключение. При первом запуске разрешите создание VPN-профиля.\n\n"
         "Статус соединения смотрите в Happ. Личную ссылку и QR-код никому не пересылайте.")

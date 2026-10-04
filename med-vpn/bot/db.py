@@ -273,3 +273,31 @@ def payout_balance(telegram_id: int) -> float:
     with _connect() as conn:
         conn.execute("UPDATE users SET balance = 0 WHERE telegram_id = ?", (telegram_id,))
     return amount
+
+def get_paid_client(telegram_id: int) -> Client | None:
+    client = get_active_client(telegram_id)
+    if client is None or not client.expires_at:
+        return None
+    try:
+        expiry = datetime.fromisoformat(client.expires_at)
+        if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+            return None
+    except ValueError:
+        return None
+    with _connect() as conn:
+        payment = conn.execute(
+            "SELECT 1 FROM purchases WHERE telegram_id = ? AND amount > 0 LIMIT 1",
+            (telegram_id,)).fetchone()
+    return client if payment else None
+
+def purchase_history(telegram_id: int) -> list[dict]:
+    with _connect() as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT amount,currency,created_at FROM purchases WHERE telegram_id = ? ORDER BY id DESC LIMIT 5",
+            (telegram_id,))]
+
+def paying_referrals(telegram_id: int) -> int:
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(DISTINCT telegram_id) FROM purchases WHERE referrer_id = ? AND amount > 0",
+            (telegram_id,)).fetchone()[0]

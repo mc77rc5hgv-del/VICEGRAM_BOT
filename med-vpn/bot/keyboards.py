@@ -7,8 +7,7 @@ import ux
 def main_menu(is_admin: bool, has_access: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="🔌 Подключить VPN", callback_data="myconfig")],
-        [InlineKeyboardButton(text="📱 Как подключиться", callback_data="help"),
-         InlineKeyboardButton(text="👤 Мой доступ", callback_data="status")],
+        [InlineKeyboardButton(text="👤 Мой доступ", callback_data="status")],
         [InlineKeyboardButton(text="💳 Продлить подписку" if has_access else "💳 Выбрать тариф", callback_data="plans")],
         [InlineKeyboardButton(text="💰 Пригласить друзей", callback_data="referral"),
          InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")],
@@ -59,7 +58,12 @@ def plans_menu() -> InlineKeyboardMarkup:
             text=f"{p.emoji} {p.label} — {p.price_rub} ₽{discount}",
             callback_data=f"plan:{p.key}",
         )])
-    rows.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")])
+    rows.extend([
+        [InlineKeyboardButton(text="ℹ️ Условия и продление", callback_data="subscription_info")],
+        [InlineKeyboardButton(text="🧾 Мои платежи", callback_data="purchase_history")],
+        [InlineKeyboardButton(text="🆘 Вопрос об оплате", callback_data="support")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -118,8 +122,19 @@ def guide_menu(platform: str) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(text=label, url=url)]
             for label,url in ux.HAPP_DOWNLOADS.get(platform, ())]
     rows.extend([
-        [InlineKeyboardButton(text="🔌 Получить мою VPN-ссылку", callback_data="myconfig")],
+        [InlineKeyboardButton(text="✅ Happ установлен — получить ссылку и QR", callback_data="config:" + platform)],
         [InlineKeyboardButton(text="⬅️ Выбрать другое устройство", callback_data="help")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def referral_menu(link: str, support_url: str) -> InlineKeyboardMarkup:
+    from urllib.parse import quote
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Скопировать приглашение", copy_text=CopyTextButton(text=link))],
+        [InlineKeyboardButton(text="📤 Поделиться", url="https://t.me/share/url?url=" + quote(link, safe=""))],
+        [InlineKeyboardButton(text="ℹ️ Условия бонусов", callback_data="referral_rules")],
+        [InlineKeyboardButton(text="💸 Обсудить выплату", url=support_url)],
+        [InlineKeyboardButton(text="🔄 Обновить статистику", callback_data="referral")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
