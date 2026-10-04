@@ -192,14 +192,16 @@ async def _send_referral(bot: Bot, chat_id: int, telegram_id: int) -> None:
     link = f"https://t.me/{me.username}?start=ref_{telegram_id}"
     stats = db.referral_stats(telegram_id)
     paying = db.paying_referrals(telegram_id)
+    earnings = db.referral_earnings(telegram_id)
+    earnings_text = "\n".join(f"{value:.2f} {currency}" for currency,value in earnings.items()) or "Пока нет начислений"
     percent = int(settings.referral_commission_rate * 100)
     await bot.send_message(chat_id,
         "💰 Реферальная программа\n\n"
         f"Приглашайте друзей — получайте {percent}% от подтверждённых покупок.\n\n"
         f"Приглашено: {stats['invited']}\nОплатили: {paying}\n"
-        f"Учтённый баланс: {stats['balance']:.2f}\n\n"
+        f"Начислено за всё время:\n{earnings_text}\n\n"
         "Приглашения не открывают бесплатный VPN-доступ. Для подключения нужна подписка.\n"
-        "Выплаты согласуются с поддержкой; рубли и Stars уточняются отдельно.\n\n"
+        "Это начисления за всё время, включая выплаченные. Остаток к выплате уточните в поддержке.\n\n"
         f"Ваша ссылка:\n{link}",
         reply_markup=kb.referral_menu(link, "https://t.me/" + settings.support_username.lstrip("@")))
 

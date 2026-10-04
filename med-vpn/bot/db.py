@@ -301,3 +301,10 @@ def paying_referrals(telegram_id: int) -> int:
         return conn.execute(
             "SELECT COUNT(DISTINCT telegram_id) FROM purchases WHERE referrer_id = ? AND amount > 0",
             (telegram_id,)).fetchone()[0]
+
+def referral_earnings(telegram_id: int) -> dict[str, float]:
+    """Lifetime accrual per currency; never sum RUB and XTR into a withdrawable amount."""
+    with _connect() as conn:
+        return {row["currency"]: row["total"] for row in conn.execute(
+            "SELECT currency,SUM(commission) AS total FROM purchases WHERE referrer_id = ? GROUP BY currency",
+            (telegram_id,))}

@@ -12,9 +12,9 @@ No subscription schema migration is needed. Existing manually issued subscriptio
 a purchase record require reconciliation with confirmed payments by an administrator.
 
 Referrals no longer provision free accounts. Expanded menus include paying-referral count,
-copy/share invitation, rules and support for manual payouts. The existing legacy balance
-may aggregate currencies; it is shown as an unlabelled bookkeeping total and users are
-directed to support to reconcile RUB and XTR separately. No automatic payout is implemented.
+copy/share invitation, rules and support for manual payouts. Lifetime referral earnings are displayed separately by currency and explicitly include
+already-paid commissions. The existing legacy balance may aggregate currencies; it is
+not presented as a spendable amount. Support reconciles the remaining payout. No automatic payout is implemented.
 Subscription menus show Stars and RUB prices, monthly equivalent, renewal rules, recent
 user-specific payments and support. Pricing and referral rates remain unchanged.
 

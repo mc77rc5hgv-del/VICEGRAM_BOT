@@ -166,5 +166,6 @@ class PaidDatabaseTests(unittest.TestCase):
         bot.db.record_purchase(2,149,"RUB")
         bot.db.record_purchase(2,150,"XTR")
         self.assertEqual(bot.db.paying_referrals(1),1)
+        self.assertEqual(bot.db.referral_earnings(1),{"RUB":14.9,"XTR":15.0})
         self.assertEqual(len(bot.db.purchase_history(2)),2)
         self.assertEqual(bot.db.purchase_history(1),[])
