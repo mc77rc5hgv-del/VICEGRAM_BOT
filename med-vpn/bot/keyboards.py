@@ -1,24 +1,53 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 
 import plans as plans_module
 
 
-def main_menu(is_admin: bool) -> InlineKeyboardMarkup:
+def main_menu(is_admin: bool, has_access: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="💳 Тарифы", callback_data="plans")],
-        [
-            InlineKeyboardButton(text="📋 Мой конфиг", callback_data="myconfig"),
-            InlineKeyboardButton(text="📊 Статус", callback_data="status"),
-        ],
-        [
-            InlineKeyboardButton(text="❌ Отключить", callback_data="revoke"),
-            InlineKeyboardButton(text="ℹ️ Помощь", callback_data="help"),
-        ],
-        [InlineKeyboardButton(text="💰 Реферальная программа", callback_data="referral")],
+        [InlineKeyboardButton(text="🔌 Подключить VPN", callback_data="myconfig")],
+        [InlineKeyboardButton(text="📱 Как подключиться", callback_data="help"),
+         InlineKeyboardButton(text="👤 Мой доступ", callback_data="status")],
+        [InlineKeyboardButton(text="💳 Продлить подписку" if has_access else "💳 Выбрать тариф", callback_data="plans")],
+        [InlineKeyboardButton(text="💰 Пригласить друзей", callback_data="referral"),
+         InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def connection_menu(uri: str) -> InlineKeyboardMarkup:
+    rows = []
+    if 1 <= len(uri) <= 256:
+        rows.append([InlineKeyboardButton(text="📋 Скопировать ссылку", copy_text=CopyTextButton(text=uri))])
+    rows.extend([
+        [InlineKeyboardButton(text="📱 Инструкция", callback_data="help")],
+        [InlineKeyboardButton(text="🆘 Не подключается", callback_data="support")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def platforms_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data="guide:" + key)]
+        for key,label in [("android","Android"),("ios","iPhone / iPad"),
+                          ("windows","Windows"),("macos","macOS")]
+    ] + [[InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")]])
+
+def support_menu(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✉️ Написать в поддержку", url=url)],
+        [InlineKeyboardButton(text="🔌 Получить ссылку повторно", callback_data="myconfig")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
+
+def account_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔌 Подключить VPN", callback_data="myconfig")],
+        [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="plans")],
+        [InlineKeyboardButton(text="🚫 Отозвать доступ", callback_data="revoke")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
 
 
 def plans_menu() -> InlineKeyboardMarkup:
