@@ -7,6 +7,7 @@ import ux
 def main_menu(is_admin: bool, has_access: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="🔌 Подключить VPN", callback_data="myconfig")],
+        [InlineKeyboardButton(text="🌍 Режим маршрутизации", callback_data="routing")],
         [InlineKeyboardButton(text="👤 Мой доступ", callback_data="status")],
         [InlineKeyboardButton(text="💳 Продлить подписку" if has_access else "💳 Выбрать тариф", callback_data="plans")],
         [InlineKeyboardButton(text="💰 Пригласить друзей", callback_data="referral"),
@@ -21,6 +22,7 @@ def connection_menu(uri: str) -> InlineKeyboardMarkup:
     if 1 <= len(uri) <= 256:
         rows.append([InlineKeyboardButton(text="📋 Скопировать ссылку", copy_text=CopyTextButton(text=uri))])
     rows.extend([
+        [InlineKeyboardButton(text="🌍 Российские и иностранные сервисы", callback_data="routing")],
         [InlineKeyboardButton(text="📱 Инструкция", callback_data="help")],
         [InlineKeyboardButton(text="🆘 Не подключается", callback_data="support")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
@@ -136,5 +138,13 @@ def referral_menu(link: str, support_url: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="ℹ️ Условия бонусов", callback_data="referral_rules")],
         [InlineKeyboardButton(text="💸 Обсудить выплату", url=support_url)],
         [InlineKeyboardButton(text="🔄 Обновить статистику", callback_data="referral")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
+    ])
+
+def routing_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌍 Универсальный режим", callback_data="routing:universal")],
+        [InlineKeyboardButton(text="🛡 Всё через VPN", callback_data="routing:full")],
+        [InlineKeyboardButton(text="🆘 Сервис не открывается", callback_data="support")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")],
     ])

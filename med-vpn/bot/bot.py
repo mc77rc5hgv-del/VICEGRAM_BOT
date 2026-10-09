@@ -22,6 +22,7 @@ from aiogram.types import (
 
 import db
 import ux
+import routing_profiles
 import hysteria_backend as hysteria
 import keyboards as kb
 import plans
@@ -41,6 +42,7 @@ PAGE_SIZE = 30
 USER_COMMANDS = [
     BotCommand(command="start", description="Главное меню"),
     BotCommand(command="connect", description="Подключить VPN"),
+    BotCommand(command="routing", description="Российские и иностранные сервисы"),
     BotCommand(command="subscribe", description="Тарифы и оплата"),
     BotCommand(command="myconfig", description="Прислать ссылку повторно"),
     BotCommand(command="status", description="Мой доступ и срок подписки"),
@@ -837,6 +839,68 @@ async def main() -> None:
     asyncio.create_task(_expiry_sweep(bot))
     log.info("MED VPN bot starting")
     await dp.start_polling(bot)
+
+
+ROUTING_TEXT = (
+    "🌍 Маршрутизация MED VPN\n\n"
+    "Универсальный: .ru, .su, .рф и выбранные российские сервисы напрямую; "
+    "остальной трафик — через VPN. Можно пользоваться российскими и иностранными "
+    "сервисами одновременно.\n\n"
+    "Прямые сервисы видят обычный IP; их DNS идёт напрямую к Яндекс DNS.\n\n"
+    "«Всё через VPN» убирает публичные исключения; локальная сеть остаётся доступной.\n\n"
+    "Примените профиль в Happ и переподключитесь. Бот не видит активный режим "
+    "устройства. Доступность каждого сервиса зависит также от вашей сети."
+)
+
+async def _routing_menu(bot: Bot, chat_id: int, telegram_id: int) -> None:
+    if chat_id != telegram_id or db.get_paid_client(telegram_id) is None:
+        await bot.send_message(chat_id, "Нужна оплаченная действующая подписка.",
+                               reply_markup=kb.plans_menu())
+        return
+    await bot.send_message(chat_id, ROUTING_TEXT, reply_markup=kb.routing_menu())
+
+
+@router.message(Command("routing"))
+async def cmd_routing(message: Message) -> None:
+    await _routing_menu(message.bot, message.chat.id, message.from_user.id)
+
+
+@router.callback_query(F.data == "routing")
+async def cb_routing_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await _routing_menu(callback.bot, callback.message.chat.id, callback.from_user.id)
+
+
+@router.callback_query(F.data.startswith("routing:"))
+async def cb_routing_profile(callback: CallbackQuery) -> None:
+    await callback.answer()
+    mode = callback.data.split(":", 1)[1]
+    if mode not in ("universal", "full"):
+        return
+    chat_id = callback.message.chat.id
+    if chat_id != callback.from_user.id or db.get_paid_client(callback.from_user.id) is None:
+        await callback.bot.send_message(chat_id, "Нужна оплаченная действующая подписка.",
+                                        reply_markup=kb.plans_menu())
+        return
+    uri = routing_profiles.routing_uri(mode)
+    title = "Универсальный режим" if mode == "universal" else "Всё через VPN"
+    await callback.bot.send_message(
+        chat_id, f"<b>{title}</b> — профиль Happ\n\n"
+        "1. Скопируйте строку целиком.\n"
+        "2. В Happ добавьте её из буфера обмена; подтвердите профиль маршрутизации.\n"
+        "3. Проверьте, что маршрутизация включена и активен MED VPN Routing. "
+        "Переподключите VPN.\n\n"
+        f"<code>{escape(uri)}</code>\n\n"
+        "Можно импортировать QR ниже или строку из TXT. "
+        "Профиль заменяет предыдущий MED VPN Routing. Личный сервер добавляется отдельно.",
+        parse_mode="HTML", reply_markup=kb.routing_menu())
+    await callback.bot.send_document(chat_id,
+        BufferedInputFile(uri.encode(), filename=f"med-vpn-{mode}.txt"),
+        caption="Профиль маршрутизации Happ; не ссылка доступа к серверу.")
+    qr_png = config_to_qr_png(uri)
+    await callback.bot.send_photo(chat_id,
+        BufferedInputFile(qr_png.read(), filename=f"med-vpn-{mode}-routing.png"),
+        caption=f"{title}: импортируйте в Happ и проверьте активный профиль.")
 
 
 if __name__ == "__main__":
